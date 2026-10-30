@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-keyboard-duplex
+      name: dsh-keyboard-duplex
+      config: {}

@@ -1,0 +1,466 @@
+diff --git a/docs/subsystems/conversation.i18n.yaml b/docs/subsystems/conversation.i18n.yaml
+index 64ca728d7e..2e79931802 100644
+--- a/docs/subsystems/conversation.i18n.yaml
++++ b/docs/subsystems/conversation.i18n.yaml
+@@ -6,8 +6,8 @@
+   en: 986c210044271162
+   zh: afe3372d8b68d963
+ /conversation-assembly/data-model-and-ownership:
+-  en: 9f86eaf987b4f631
+-  zh: b1ecc4c292715445
++  en: 39d93149694d24b2
++  zh: 265bca7bf513e9c6
+ /conversation-assembly/target-activation:
+   en: 41a32beb5c85354f
+   zh: 346f7c9a17cb1f67
+diff --git a/docs/subsystems/conversation.md b/docs/subsystems/conversation.md
+index ef6f6ffbdb..957748dba9 100644
+--- a/docs/subsystems/conversation.md
++++ b/docs/subsystems/conversation.md
+@@ -8,6 +8,8 @@ This page defines the data model and the extension path for a business-owned Con
+ 
+ ## Data model and ownership
+ 
++The composer publishes optional `InputActions.submitPrefix(PrefixSubmission)` for revision-guarded plain-text prefixes. `sendEnd` and `consumeEnd` are UTF-16 offsets; the latter may additionally consume separators. `PrefixSubmissionResult.kind` distinguishes `accepted`, `skipped`, `error`, and `disposed`. The input shell owns suffix retention, native admission ordering, failure restoration and Undo isolation; [the package reference](../../packages/client/ui-conversation/README.md#shell-and-standard-props) defines supported submissions.
++
+ The Session Controller owns the contiguous loaded logical-event window. Each `SessionEventLikeEntry` is either `{ type: 'event', event: SessionEvent }` for one durable event or `{ type: 'transient', event: AssistantLiveChunkEvent }` for one Client-only `assistant/live-chunk` presentation. Both inner events expose `type`, `seq`, `time`, and `data`. `ui-conversation` passes these entries to the assembler without opening a second history stream. One `ConversationNodeAssembler` per Session applies every registered Definition and publishes an independent source for each registered view target.
+ 
+ | Concept | Owner and purpose |
+diff --git a/docs/subsystems/conversation.zh.md b/docs/subsystems/conversation.zh.md
+index a3ef583db2..d235817f04 100644
+--- a/docs/subsystems/conversation.zh.md
++++ b/docs/subsystems/conversation.zh.md
+@@ -8,6 +8,8 @@ Conversation 是 Client `SessionEventLikeEntry` window 与浏览器 view 之间
+ 
+ ## 数据模型与所有权
+ 
++Composer 通过可选的 `InputActions.submitPrefix(PrefixSubmission)` 提供带修订校验的纯文本前缀提交。`sendEnd` 和 `consumeEnd` 使用 UTF-16 下标，后者可以额外包含分隔符。`PrefixSubmissionResult.kind` 区分 `accepted`、`skipped`、`error` 和 `disposed`。输入 shell 负责后缀保留、原生接纳顺序、失败恢复和撤销隔离；支持的提交类型见[包参考](../../packages/client/ui-conversation/README.zh.md#shell-and-standard-props)。
++
+ Session Controller 拥有连续的已加载逻辑 event window。每个 `SessionEventLikeEntry` 要么是表示一个持久事件的 `{ type: 'event', event: SessionEvent }`，要么是表示一个 Client-only `assistant/live-chunk` 呈现的 `{ type: 'transient', event: AssistantLiveChunkEvent }`；两种内部 event 都公开 `type`、`seq`、`time` 与 `data`。`ui-conversation` 把这些 entry 直接交给 assembler，不另开 history stream。每个 Session 对应一个 `ConversationNodeAssembler`，它应用所有已注册 Definition，并为每个已注册 view target 发布独立 source。
+ 
+ | 概念 | Owner 与用途 |
+diff --git a/packages/client/ui-conversation/README.i18n.yaml b/packages/client/ui-conversation/README.i18n.yaml
+index 3b74b55d70..8195a40cf8 100644
+--- a/packages/client/ui-conversation/README.i18n.yaml
++++ b/packages/client/ui-conversation/README.i18n.yaml
+@@ -21,8 +21,8 @@
+   en: 9912b286384c41d7
+   zh: 3e994887c1948677
+ /deepseek-ai-dsh-client-ui-conversation/shell-and-standard-props:
+-  en: c4d4aaef46daab72
+-  zh: 0dac50689d806ecf
++  en: 7abd6ee5ae3a9e14
++  zh: ec37a7700159079f
+ /deepseek-ai-dsh-client-ui-conversation/temporary-composer-entries:
+   en: bb1244310f5c0382
+   zh: 824b84077432b559
+diff --git a/packages/client/ui-conversation/README.md b/packages/client/ui-conversation/README.md
+index 1a0cb88bc9..c595b951a3 100644
+--- a/packages/client/ui-conversation/README.md
++++ b/packages/client/ui-conversation/README.md
+@@ -76,6 +76,8 @@ The composer registers the File command action and owns its label, availability,
+ 
+ `SessionInputShell` owns one Lexical editor per Session through its private [DraftEditorRuntime](src/client/input/editor/runtime.ts), while retaining submission, attachment selection, and recovery decisions. [DraftEditor](src/client/input/editor/DraftEditor.tsx) renders the borrowed editor; InputBar retains its Hooks and refs and installs DOM behavior through [view-binding](src/client/input/editor/view-binding.ts). Editor-facing types live in [draft-editor.ts](src/client/contract/draft-editor.ts), with shared input and submission types in [input.ts](src/client/contract/input.ts). Background editor updates retain the draft selection without changing the document selection or reclaiming focus from another control; explicit Composer focus restores its selection. This separation does not support simultaneous editable roots for one Session; [the two-stage isolation proposal](../../../.agents/notes/proposed/architecture/2026-09-14-composer-model-and-draft-editor.md) defines the remaining work.
+ 
++`inputActions.submitPrefix()` submits a revision-guarded plain-text prefix through the native message sink, leaving its suffix editable and cutting the sent prefix out of Undo history. It returns admission status, not Agent completion. Plain-text Enter submissions made during admission wait behind it; rejection restores their text ahead of current edits. Commands, references and attachments keep their independent submission paths. The optional method is absent on older composer providers; consumers must check availability.
++
+ Drafts retain plain text and file, folder, and Session reference chips across Session switching and reload. Public input methods accept text; internal restoration and Workspace transfer preserve structured references. The input model imports saved content before its first published read; React only mounts that editor and binds the existing Conversation store writer. The original storage key accepts legacy strings and writes semantic snapshots without runtime node IDs. A pending skill catalog does not block editing: slash names remain ordinary text until a matching catalog entry arrives. Arrival rematches the current text without changing chips, selection, or Undo history. Browser-owned attachment File objects are not persisted by this mechanism. The [draft initialization decision](../../../.agents/notes/implemented/architecture/2026-09-30-structured-draft-initialization.md) defines ownership and restoration.
+ 
+ A claimed command is one atomic chip at the start of the draft, and the claim lasts exactly as long as that chip. Deleting the arguments and separator keeps the claim. At the chip's edge, the first Backspace or Delete selects the whole chip and the next one removes it and releases the claim, leaving the arguments as plain text; any other key, a click, or a caret move clears the selection. Text or a line break inserted before the chip turns it back into its literal token and releases the claim, and undo restores a deleted chip together with its claim. The persisted draft records the chip's token, so a reload rebuilds the chip once the command catalog resolves the claim; editing the draft first keeps the literal token, which Enter still submits as the command. The same rules apply to every command and locale, including `/goal`, `/目标`, `/plan`, and `/计划`. Command hints and ordinary placeholders remain hidden throughout IME composition and reappear only after the editor commits the final text and the corresponding input is empty.
+diff --git a/packages/client/ui-conversation/README.zh.md b/packages/client/ui-conversation/README.zh.md
+index ccef596924..62bdf7f075 100644
+--- a/packages/client/ui-conversation/README.zh.md
++++ b/packages/client/ui-conversation/README.zh.md
+@@ -76,6 +76,8 @@ Queue 预览启用空白折叠和文档边缘 trim，保留 emoji，并使用 CS
+ 
+ `SessionInputShell` 通过私有 [DraftEditorRuntime](src/client/input/editor/runtime.ts) 为每个 Session 持有一个 Lexical editor，同时保留提交、附件选择和恢复决策。[DraftEditor](src/client/input/editor/DraftEditor.tsx) 呈现借用的 editor；InputBar 保留钩子与 refs，并通过 [view-binding](src/client/input/editor/view-binding.ts) 安装 DOM 行为。编辑器类型位于 [draft-editor.ts](src/client/contract/draft-editor.ts)，共享输入和提交类型位于 [input.ts](src/client/contract/input.ts)。编辑器后台更新会保留草稿选区，不修改文档选区或从其他控件夺回焦点；显式聚焦 Composer 时恢复其选区。这一拆分不支持同一 Session 同时挂载多个可编辑 root；[两阶段隔离提案](../../../.agents/notes/proposed/architecture/2026-09-14-composer-model-and-draft-editor.zh.md) 定义剩余工作。
+ 
++`inputActions.submitPrefix()` 通过原生消息提交路径发送带修订校验的纯文本前缀，后缀继续可编辑，已发送前缀不能通过撤销恢复。返回值表示接纳状态，不表示 agent 已完成。接纳期间按 Enter 提交的纯文本会等待前句结果；拒绝后，相关文字恢复到当前编辑内容之前。命令、引用和附件保留各自独立的提交路径。旧版 composer provider 不提供这个可选方法，使用方必须检查其可用性。
++
+ 草稿中的普通文字及文件、目录、Session 引用胶囊在切换 Session 和刷新后保留。公开输入方法接受文本；内部恢复和工作区携带保留结构化引用。输入模型在首次对外读取前导入保存内容；React 只挂载同一编辑器并绑定现有 Conversation store 写入回调。原存储 key 兼容旧字符串，新写入保存不含运行时节点 ID 的语义快照。等待 skill 目录不会阻塞编辑：斜杠名称保持普通文字，直到匹配的目录项到达。目录到达只重匹配当前文字，不改变胶囊、选区或 Undo 历史。浏览器持有的附件 File 对象不由这一机制持久化。[草稿初始化决策](../../../.agents/notes/implemented/architecture/2026-09-30-structured-draft-initialization.zh.md)规定所有权与恢复流程。
+ 
+ 已认领的命令是草稿开头的一个原子 chip，认领与该 chip 同生共灭。删除参数和分隔空格不影响认领。光标到达 chip 边缘时，第一次 Backspace 或 Delete 选中整个 chip，再按一次才删除它并释放认领，参数保留为普通文字；按其他键、点击或移动光标会取消选中。在 chip 前插入文字或换行会把它还原为字面 token 并释放认领，撤销会连同认领一起恢复被删除的 chip。持久化的草稿记录 chip 的 token，刷新后命令目录解析出认领即重建 chip；在此之前先编辑了草稿则保留字面 token，Enter 仍会把它作为命令提交。所有命令和语言使用相同规则，包括 `/goal`、`/目标`、`/plan` 和 `/计划`。输入法组合输入期间，命令提示和普通占位文字持续隐藏，直到编辑器提交最终文字且对应输入为空时才重新显示。
+diff --git a/packages/client/ui-conversation/src/client/contract/input.ts b/packages/client/ui-conversation/src/client/contract/input.ts
+index 9b9502bf92..c8ffc6ce1a 100644
+--- a/packages/client/ui-conversation/src/client/contract/input.ts
++++ b/packages/client/ui-conversation/src/client/contract/input.ts
+@@ -238,12 +238,18 @@ export interface DraftInitializationOptions {
+ /** An initialization request never waits for a React mount or a remote catalog. */
+ export type DraftInitializationResult = 'applied' | 'preserved' | 'blocked'
+ 
+-/**
+- * The public input action face provided to every session-scope slot
+- * component: stable-identity void callbacks, mirroring the
+- * useStore+actions convention. Command-style handles (arbitrate/space/
+- * paste/…) stay InputBar-private and never ride this face.
+- */
++/** Revision and UTF-16 bounds of a plain-text prefix submitted independently of its suffix. */
++export interface PrefixSubmission {
++  readonly draftRev: number
++  readonly sendEnd: number
++  readonly consumeEnd: number
++  readonly mode: InputSubmitMode
++}
++
++/** Prefix admission result; skipped leaves the editor untouched, error restores unsent text. */
++export type PrefixSubmissionResult = { readonly kind: 'accepted' | 'skipped' | 'error' | 'disposed' }
++
++/** Public, stable-identity editor actions supplied to Session-scoped slots. */
+ export interface InputActions {
+   /** @returns a revision-guarded copy of the current editor selection. */
+   captureInsertion(): TokenSpan
+@@ -266,6 +272,14 @@ export interface InputActions {
+   pruneAttachments(ids: readonly DraftAttachmentId[]): void
+   /** Enter submission (adjudication / claim transaction / default sink inside). */
+   submit(): void
++  /**
++   * Submit a revision-guarded plain-text prefix, retaining the suffix and native undo boundary.
++   * Subsequent plain-text sends wait for admission; rejection restores them ahead of current edits.
++   * Commands and attachment/reference sends retain their independent native submission paths.
++   * @param request - UTF-16 prefix bounds; only separator punctuation/space may lie between the bounds.
++   * @returns admission result, independently of Agent completion. Absent on older composer providers.
++   */
++  submitPrefix?(request: PrefixSubmission): Promise<PrefixSubmissionResult>
+ }
+ 
+ /** One surfaced notice (command results, adjudication failures). seq keys re-render of repeats. */
+@@ -326,6 +340,8 @@ export type InputEvent =
+   | { readonly type: 'claim'; readonly claim: CommandClaim }
+   /** Enter submission with the current clipboard projection. */
+   | { readonly type: 'enter'; readonly mode: InputSubmitMode; readonly draft: string; readonly submission?: MessageSubmission }
++  /** Validated plain-text prefix; draft includes consumed separators, text is the exact submitted text. */
++  | { readonly type: 'prefix'; readonly mode: InputSubmitMode; readonly draft: string; readonly text: string }
+   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
+   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
+   /** Settlement carries the leading command chip's claim, which the claim follows after a failure. */
+@@ -365,4 +381,4 @@ export type InputEffect =
+    * separated and clear whole); null clears unconditionally (attachment-only
+    * sends have no draft to retain).
+    */
+-  | { readonly type: 'commit-draft'; readonly retainSuffixOf: string | null }
++  | { readonly type: 'commit-draft'; readonly retainSuffixOf: string | null; readonly selectSuffixEnd?: boolean }
+diff --git a/packages/client/ui-conversation/src/client/index.ts b/packages/client/ui-conversation/src/client/index.ts
+index 229aea31cc..a65d7f32bb 100644
+--- a/packages/client/ui-conversation/src/client/index.ts
++++ b/packages/client/ui-conversation/src/client/index.ts
+@@ -98,7 +98,7 @@ export type {
+ export type {
+   BeginCommandRequest, CommandClaim, ConsumeTokenRequest, DraftAttachmentId, DraftInitializationOptions,
+   DraftInitializationResult, InputActions,
+-  InputState, InsertReferenceRequest, InsertTextRequest, PickOutcome, SessionInput,
++  InputState, InsertReferenceRequest, InsertTextRequest, PickOutcome, PrefixSubmission, PrefixSubmissionResult, SessionInput,
+   SessionInputResolver, SubmitAttachment, SubmitOutcome,
+ } from './contract/input.ts'
+ export type { ArbitrateKey, ArbitrateOutcome, DraftInput, DraftReference, DraftSnapshot, ReferenceInsert, TokenSpan } from './contract/draft-editor.ts'
+diff --git a/packages/client/ui-conversation/src/client/input/editor/runtime.ts b/packages/client/ui-conversation/src/client/input/editor/runtime.ts
+index 7cd85c0506..12a41743aa 100644
+--- a/packages/client/ui-conversation/src/client/input/editor/runtime.ts
++++ b/packages/client/ui-conversation/src/client/input/editor/runtime.ts
+@@ -309,8 +309,9 @@ export class DraftEditorRuntime {
+   /**
+    * Clear committed content using the model's suffix decision inside the editor update.
+    * @param prefixLength - returns the clipboard-prefix length to remove, or null to clear the root.
++   * @param selectSuffixEnd - place the caret after the retained suffix; otherwise keep the replacement position.
+    */
+-  clearCommittedDraft(prefixLength: (clipboardText: string) => number | null): void {
++  clearCommittedDraft(prefixLength: (clipboardText: string) => number | null, selectSuffixEnd = false): void {
+     this.editor.update(() => {
+       const layout = $composerLayout()
+       const length = prefixLength(layout.clipboardText)
+@@ -318,6 +319,7 @@ export class DraftEditorRuntime {
+         $replaceDetectSpanWithText(
+           { start: 0, end: detectOffsetOfClipboardOffset(layout, length) }, '',
+         )
++        if (selectSuffixEnd) $getRoot().selectEnd()
+         return
+       }
+       const root = $getRoot()
+diff --git a/packages/client/ui-conversation/src/client/input/facade.ts b/packages/client/ui-conversation/src/client/input/facade.ts
+index a0d772da71..8fb9e4fef0 100644
+--- a/packages/client/ui-conversation/src/client/input/facade.ts
++++ b/packages/client/ui-conversation/src/client/input/facade.ts
+@@ -17,7 +17,7 @@ import type { LexicalEditor } from 'lexical'
+ import type {
+   CommandClaim, ConsumeTokenRequest, DraftAttachmentId, DraftInitializationOptions, DraftInitializationResult,
+   InputActions, InputEffect, InputNotice, InputState, InputTriggerController, PickOutcome,
+-  SessionInput, SubmitAttempt, SubmitAttachment, SubmitOutcome,
++  PrefixSubmission, PrefixSubmissionResult, SessionInput, SubmitAttempt, SubmitAttachment, SubmitOutcome,
+ } from '../contract/input.ts'
+ import type {
+   ArbitrateKey, ArbitrateOutcome, ComposerKeyboard, DraftInput, DraftSnapshot, Occurrence, ReferenceInsert, TokenSpan,
+@@ -134,6 +134,7 @@ export class SessionInputShell implements SessionInput {
+     removeAttachment: (id) => { this.removeAttachment(id) },
+     pruneAttachments: (ids) => { this.pruneAttachments(ids) },
+     submit: () => { this.submit('queue') },
++    submitPrefix: request => this.submitPrefix(request),
+   }
+ 
+   private readonly core = new SubmitMachine()
+@@ -160,6 +161,13 @@ export class SessionInputShell implements SessionInput {
+   private readonly detachedDrafts = new Map<number, DetachedDraft>()
+   /** Failed default sends waiting to be restored together in submission order. */
+   private readonly failedDetached = new Map<number, DetachedDraft>()
++  /** A prefix admission and ordinary messages entered before it settles. */
++  private prefixAdmission: {
++    readonly attempt: SubmitAttempt
++    readonly pending: Promise<PrefixSubmissionResult>
++    readonly resolve: (result: PrefixSubmissionResult) => void
++    readonly dependents: Map<number, SubmitAttempt>
++  } | undefined
+   /** Revision of the last automatic failure restoration. */
+   private failedRestoreRev: number | undefined
+   private restoringFailures = false
+@@ -431,6 +439,29 @@ export class SessionInputShell implements SessionInput {
+     }
+   }
+ 
++  private submitPrefix(request: PrefixSubmission): Promise<PrefixSubmissionResult> {
++    const draft = this.projection.clipboardText
++    if (this.disposed || this.prefixAdmission !== undefined || this.detachedDrafts.size > 0
++      || this.attachmentFlights.size > 0 || this.snapshot.phase !== 'plain' || request.draftRev !== this.rev
++      || this.attachmentIds.length > 0 || this.projection.occurrences.length > 0 || draft.trimStart().startsWith('/')
++      || !Number.isInteger(request.sendEnd) || !Number.isInteger(request.consumeEnd)
++      || request.sendEnd <= 0 || request.consumeEnd < request.sendEnd || request.consumeEnd > draft.length
++      || !draft.slice(0, request.sendEnd).trim()
++      || !/^[\s，,。！？!?；;]*$/u.test(draft.slice(request.sendEnd, request.consumeEnd))) {
++      return Promise.resolve({ kind: 'skipped' })
++    }
++    const effects = this.core.dispatch({
++      type: 'prefix', mode: request.mode, text: draft.slice(0, request.sendEnd),
++      draft: draft.slice(0, request.consumeEnd),
++    })
++    const sink = effects.find(effect => effect.type === 'default-sink')
++    if (sink?.type !== 'default-sink') return Promise.resolve({ kind: 'skipped' })
++    const { promise, resolve } = Promise.withResolvers<PrefixSubmissionResult>()
++    this.prefixAdmission = { attempt: sink.attempt, pending: promise, resolve, dependents: new Map() }
++    this.run(effects)
++    return promise
++  }
++
+   /**
+    * Keyboard arbitration while the menu is open.
+    * @param key - the intercepted key.
+@@ -612,6 +643,8 @@ export class SessionInputShell implements SessionInput {
+       flight.controller.abort()
+     }
+     this.disposed = true
++    this.prefixAdmission?.resolve({ kind: 'disposed' })
++    this.prefixAdmission = undefined
+     this.cancelCommandRestore()
+     this.dispatchRun(({ type: 'release' }))
+     this.unsubscribeInbox?.()
+@@ -701,7 +734,7 @@ export class SessionInputShell implements SessionInput {
+         return
+       }
+       case 'commit-draft': {
+-        this.commitDraft(fx.retainSuffixOf)
++        this.commitDraft(fx.retainSuffixOf, fx.selectSuffixEnd)
+         return
+       }
+     }
+@@ -712,13 +745,13 @@ export class SessionInputShell implements SessionInput {
+    * a pure typed-during-flight suffix when the snapshot allows) and cut the
+    * undo history so sent content cannot resurrect.
+    */
+-  private commitDraft(retainSuffixOf: string | null): void {
++  private commitDraft(retainSuffixOf: string | null, selectSuffixEnd = false): void {
+     this.draftEditor.clearCommittedDraft((clip) => {
+       if (retainSuffixOf !== null && clip !== retainSuffixOf && clip.startsWith(retainSuffixOf)) {
+         return retainSuffixOf.length
+       }
+       return null
+-    })
++    }, selectSuffixEnd)
+     this.draftEditor.clearHistory()
+   }
+ 
+@@ -737,14 +770,23 @@ export class SessionInputShell implements SessionInput {
+     const attachmentIds = [...this.attachmentIds]
+     this.attachmentIds = []
+     const occurrences = this.projection.occurrences
+-    const record = { draft, occurrences, attachmentIds }
++    const record = { draft: attempt.draftSnapshot, occurrences, attachmentIds }
+     this.detachedDrafts.set(attempt.seq, record)
+     if (this.failedRestoreRev === this.rev) {
+       this.failedDetached.clear()
+       this.failedRestoreRev = undefined
+     }
+     if (occurrences.length === 0) {
+-      this.settleSink(attempt, this.deps.defaultSink(draft.trim(), attachmentIds, mode, attempt.signal))
++      const prefix = this.prefixAdmission
++      if (prefix !== undefined && prefix.attempt.seq !== attempt.seq && attachmentIds.length === 0) {
++        prefix.dependents.set(attempt.seq, attempt)
++        this.settleSink(attempt, prefix.pending.then((result) => {
++          if (result.kind !== 'accepted' || this.dead(attempt)) return { kind: 'error' }
++          return this.deps.defaultSink(draft.trim(), attachmentIds, mode, attempt.signal)
++        }))
++      } else {
++        this.settleSink(attempt, this.deps.defaultSink(draft.trim(), attachmentIds, mode, attempt.signal))
++      }
+       return
+     }
+     const inputTriggers = this.deps.inputTriggers?.()
+@@ -790,13 +832,17 @@ export class SessionInputShell implements SessionInput {
+   ): void {
+     pending.then(
+       (outcome) => {
+-        if (this.dead(attempt)) return
++        if (this.dead(attempt) || !this.detachedDrafts.has(attempt.seq)) return
+         if (outcome.kind !== 'success') {
+           this.settleDetachedFailure(attempt, outcome.text)
+           return
+         }
+         this.detachedDrafts.delete(attempt.seq)
+         this.dispatchRun(({ type: 'sink-settled', attempt, ok: true, outcome }))
++        if (this.prefixAdmission?.attempt.seq === attempt.seq) {
++          this.prefixAdmission.resolve({ kind: 'accepted' })
++          this.prefixAdmission = undefined
++        }
+       },
+       (error: unknown) => {
+         if (this.dead(attempt)) return
+@@ -807,6 +853,24 @@ export class SessionInputShell implements SessionInput {
+ 
+   /** Restore one failed detached send without overwriting text entered after a restoration. */
+   private settleDetachedFailure(attempt: SubmitAttempt, message?: string): void {
++    const prefix = this.prefixAdmission
++    if (prefix?.attempt.seq === attempt.seq) {
++      let recovered = ''
++      for (const item of [prefix.attempt, ...prefix.dependents.values()]) {
++        const record = this.detachedDrafts.get(item.seq)
++        if (record === undefined) continue
++        recovered += record.draft
++        this.detachedDrafts.delete(item.seq)
++        this.dispatchRun({ type: 'sink-settled', attempt: item, ok: false })
++      }
++      const occurrences = this.projection.occurrences.map(item => ({ ...item, offset: item.offset + recovered.length }))
++      this.draftEditor.restoreDraft(recovered + this.projection.clipboardText, occurrences)
++      this.draftEditor.clearHistory()
++      if (message !== undefined) this.notify('error', message)
++      prefix.resolve({ kind: 'error' })
++      this.prefixAdmission = undefined
++      return
++    }
+     const record = this.detachedDrafts.get(attempt.seq)
+     if (record === undefined) return
+     this.detachedDrafts.delete(attempt.seq)
+diff --git a/packages/client/ui-conversation/src/client/input/machine.ts b/packages/client/ui-conversation/src/client/input/machine.ts
+index b85464e5be..c3db60664f 100644
+--- a/packages/client/ui-conversation/src/client/input/machine.ts
++++ b/packages/client/ui-conversation/src/client/input/machine.ts
+@@ -73,6 +73,14 @@ export class SubmitMachine {
+       case 'draft-changed': return this.followCommand(ev.command)
+       case 'claim': return this.followCommand(ev.claim)
+       case 'enter': return this.onEnter(ev.mode, ev.draft, ev.submission)
++      case 'prefix': {
++        if (this.phase !== 'plain') return []
++        const attempt = this.beginDetached(ev.mode, ev.draft)
++        return [
++          { type: 'default-sink', attempt, draft: ev.text, mode: ev.mode },
++          { type: 'commit-draft', retainSuffixOf: ev.draft, selectSuffixEnd: true },
++        ]
++      }
+       case 'adjudicated': return this.onAdjudicated(ev.attempt, ev.outcome)
+       case 'adjudication-failed': return this.onAdjudicationFailed(ev.attempt, ev.message)
+       case 'submit-settled': return this.onSubmitSettled(ev)
+diff --git a/packages/client/ui-conversation/tests/prefix-submit.client.spec.ts b/packages/client/ui-conversation/tests/prefix-submit.client.spec.ts
+new file mode 100644
+index 0000000000..3b1b18fe74
+--- /dev/null
++++ b/packages/client/ui-conversation/tests/prefix-submit.client.spec.ts
+@@ -0,0 +1,95 @@
++import { describe, expect, it, vi } from 'vitest'
++import type { Context } from '@deepseek-ai/cordis'
++import { UNDO_COMMAND } from 'lexical'
++import { SessionInputShell, type SessionInputDeps } from '../src/client/input/facade.ts'
++import type { SubmitOutcome } from '../src/client/contract/input.ts'
++
++const first = '我想知道当前工作区的位置'
++const draft = `${first}，然后`
++
++function setup() {
++  const admissions: ((outcome: SubmitOutcome) => void)[] = []
++  const sink = vi.fn<SessionInputDeps['defaultSink']>(() => new Promise<SubmitOutcome>(resolve => admissions.push(resolve)))
++  const shell = new SessionInputShell({
++    actx: {} as Context, defaultSink: sink,
++    commandAttachments: { serialize: async () => [], release() {}, unsupportedNotice: token => token },
++  })
++  shell.setDraft(draft)
++  const send = (mode: 'queue' | 'steer' = 'queue') => shell.actions.submitPrefix!({
++    draftRev: shell.snapshot.draftRev, sendEnd: first.length, consumeEnd: first.length + 1, mode,
++  })
++  return { shell, sink, admissions, send }
++}
++
++describe('native prefix admission', () => {
++  it('sends the original prefix, retains suffix, and prevents undo from resurrecting sent text', async () => {
++    const { shell, sink, admissions, send } = setup()
++    try {
++      const pending = send()
++      expect(sink).toHaveBeenCalledWith(first, [], 'queue', expect.any(AbortSignal))
++      expect(shell.snapshot.draft).toBe('然后')
++      expect(shell.actions.captureInsertion()).toMatchObject({ start: 2, end: 2 })
++      admissions[0]!({ kind: 'success' })
++      expect(await pending).toEqual({ kind: 'accepted' })
++      expect({ message: sink.mock.calls[0]?.[0], remaining: shell.snapshot.draft }).toMatchInlineSnapshot(`
++        {
++          "message": "我想知道当前工作区的位置",
++          "remaining": "然后",
++        }
++      `)
++      shell.editor.dispatchCommand(UNDO_COMMAND, undefined)
++      expect(shell.snapshot.draft).toBe('然后')
++    } finally { shell.dispose() }
++  })
++
++  it('Enter captures the suffix once and waits for the earlier prefix admission', async () => {
++    const { shell, sink, admissions, send } = setup()
++    try {
++      const pending = send()
++      shell.setDraft('然后列一下顶层目录')
++      shell.submit('queue', 'enter')
++      expect(sink).toHaveBeenCalledTimes(1)
++      shell.setDraft('还有一件事')
++      admissions[0]!({ kind: 'success' })
++      await pending
++      await vi.waitFor(() => expect(sink).toHaveBeenCalledTimes(2))
++      expect(sink.mock.calls[1]?.[0]).toBe('然后列一下顶层目录')
++      expect(shell.snapshot.draft).toBe('还有一件事')
++      admissions[1]!({ kind: 'success' })
++    } finally { shell.dispose() }
++  })
++
++  it('rejection restores the prefix and staged Enter without overwriting new typing', async () => {
++    const { shell, sink, admissions, send } = setup()
++    try {
++      const pending = send()
++      shell.setDraft('然后列一下顶层目录。')
++      shell.submit()
++      shell.setDraft('还有一件事')
++      admissions[0]!({ kind: 'error' })
++      expect(await pending).toEqual({ kind: 'error' })
++      expect(shell.snapshot.draft).toBe(`${first}，然后列一下顶层目录。还有一件事`)
++      await Promise.resolve()
++      expect(sink).toHaveBeenCalledTimes(1)
++    } finally { shell.dispose() }
++  })
++
++  it('stale revisions and non-separator consumption leave the editor unchanged', async () => {
++    const { shell, sink } = setup()
++    try {
++      expect(await shell.actions.submitPrefix!({ draftRev: -1, sendEnd: first.length, consumeEnd: first.length, mode: 'queue' })).toEqual({ kind: 'skipped' })
++      expect(await shell.actions.submitPrefix!({ draftRev: shell.snapshot.draftRev, sendEnd: first.length, consumeEnd: draft.length, mode: 'queue' })).toEqual({ kind: 'skipped' })
++      expect(shell.snapshot.draft).toBe(draft)
++      expect(sink).not.toHaveBeenCalled()
++    } finally { shell.dispose() }
++  })
++
++  it('routes steering natively and releases a pending prefix on disposal', async () => {
++    const { shell, sink, send } = setup()
++    const pending = send('steer')
++    expect(sink).toHaveBeenCalledWith(first, [], 'steer', expect.any(AbortSignal))
++    expect(await send()).toEqual({ kind: 'skipped' })
++    shell.dispose()
++    expect(await pending).toEqual({ kind: 'disposed' })
++  })
++})
