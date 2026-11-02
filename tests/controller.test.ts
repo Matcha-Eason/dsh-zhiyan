@@ -8,11 +8,11 @@ function draft(text = '我想做个提醒应用', overrides: Partial<DraftSnapsh
   return {
     sessionId: 's1', draft: text, draftRev: 1, contextRevision: -1,
     model: { provider: 'chosen-provider', model: 'chosen-model' },
-    start: text.length, end: text.length, selectionVersion: 0, focused: true, composing: false, running: false, ...overrides,
+    start: text.length, end: text.length, focused: true, composing: false, running: false, ...overrides,
   }
 }
 const suggestion: PreviewResult = {
-  action: 'suggest', advice: '先想清楚是谁设置提醒，别把所有功能塞进第一版。', completion: '，先只做家属设置。',
+  action: 'suggest', advice: '先想清楚是谁设置提醒，别把所有功能塞进第一版。',
   model: { provider: 'chosen-provider', model: 'chosen-model' }, metrics: { decisionMs: 40, mainMs: 60, totalMs: 100 },
 }
 
@@ -44,7 +44,7 @@ test('opt-in, idle debounce and semantic sentence trigger', async t => {
   assert.equal(calls.length, 2, 'a stable sentence can trigger while the user continues typing')
 })
 
-test('append preserves opinion but invalidates completion; latest snapshot replaces the queue', async t => {
+test('append preserves opinion; latest snapshot replaces the queue', async t => {
   const { controller, calls, advance } = setup(t)
   controller.update(draft())
   controller.setEnabled(true)
@@ -58,7 +58,6 @@ test('append preserves opinion but invalidates completion; latest snapshot repla
   await advance(0)
   assert.equal(controller.getSnapshot().opinion?.advice, suggestion.advice)
   assert.equal(controller.getSnapshot().opinion?.earlier, true)
-  assert.equal(controller.getSnapshot().opinion?.completion, undefined)
   await advance(0)
   assert.equal(calls.length, 2)
   assert.match(calls[1]!.request.draft, /不接硬件$/)
@@ -148,43 +147,6 @@ test('IME confirmation, selection and focus gate new previews', async t => {
   controller.update(draft())
   await advance(0)
   assert.equal(calls.length, 1)
-})
-
-test('caret away-and-back invalidates in-flight continuation even if text is identical', async t => {
-  const { controller, calls, advance } = setup(t)
-  controller.update(draft())
-  controller.setEnabled(true)
-  await advance(800)
-  controller.update(draft(undefined, { selectionVersion: 2 }))
-  calls[0]!.resolve(suggestion)
-  await advance(0)
-  assert.equal(controller.getSnapshot().opinion?.completion, undefined)
-})
-
-test('accept uses guarded insertion once; its edit does not request another suggestion', async t => {
-  const { controller, calls, advance } = setup(t)
-  const before = draft()
-  controller.update(before)
-  controller.setEnabled(true)
-  await advance(800)
-  calls[0]!.resolve(suggestion)
-  await advance(0)
-  assert.equal(controller.accept({ ...before, draftRev: 99 }, () => { throw new Error('must not insert') }), false)
-  let inserted = 0
-  assert.equal(controller.accept(before, (text, span) => {
-    inserted++
-    assert.equal(text, suggestion.completion)
-    assert.equal(span.draftRev, before.draftRev)
-    controller.update(draft(before.draft + text, { draftRev: 2 }))
-    return true
-  }), true)
-  assert.equal(inserted, 1)
-  assert.equal(controller.accept(before, () => true), false)
-  await advance(60_000)
-  assert.equal(calls.length, 1)
-  controller.update(draft(before.draft + suggestion.completion + '还有预算问题', { draftRev: 3 }))
-  await advance(800)
-  assert.equal(calls.length, 2)
 })
 
 test('Enter/dismiss cancels immediately and does not retry the same draft', async t => {

@@ -32,13 +32,13 @@ test('opinion-only response is valid; selected main route is used, with no tools
   assert.equal(result.action, 'suggest')
   if (result.action !== 'suggest') return
   assert.match(result.advice, /闭环/)
-  assert.equal(result.completion, undefined)
+  assert.equal('completion' in result, false)
   assert.equal(result.metrics.usage?.outputTokens, 30)
 })
 
-test('mandatory opinion, optional continuation and exact leading spaces', () => {
-  assert.deepEqual(parseSuggestion('{"advice":"先缩小范围。","completion":" 先只做一件事。"}'), { advice: '先缩小范围。', completion: ' 先只做一件事。' })
-  assert.deepEqual(parseSuggestion('```json\n{"advice":"先缩小范围。","completion":null}\n```'), { advice: '先缩小范围。' })
+test('requires an opinion and discards legacy continuation fields', () => {
+  assert.deepEqual(parseSuggestion('{"advice":"先缩小范围。","completion":" 先只做一件事。"}'), { advice: '先缩小范围。' })
+  assert.deepEqual(parseSuggestion('```json\n{"advice":" 先缩小范围。 "}\n```'), { advice: '先缩小范围。' })
   for (const value of ['{}', '{"completion":"只有续写"}', '{"advice":"  ","completion":"续写"}', '{"advice":false}', 'not json']) {
     assert.throws(() => parseSuggestion(value))
   }

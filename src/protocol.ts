@@ -38,24 +38,19 @@ export type PreviewResult =
   | {
     action: 'suggest'
     advice: string
-    completion?: string
     model: ModelSelection
     metrics: PreviewMetrics
   }
 
-/** Reject incomplete output instead of displaying canned advice or accepting continuation alone. */
-export function parseSuggestion(text: string): { advice: string; completion?: string } {
+/** Only a complete, nonempty opinion can be displayed. */
+export function parseSuggestion(text: string): { advice: string } {
   const value: unknown = JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/, '$1'))
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid-suggestion')
-  const { advice, completion } = value as Record<string, unknown>
-  if (typeof advice !== 'string' || !advice.trim() || advice.length > 600
-    || (completion !== undefined && completion !== null && (typeof completion !== 'string' || completion.length > 400))) {
+  const { advice } = value as Record<string, unknown>
+  if (typeof advice !== 'string' || !advice.trim() || advice.length > 600) {
     throw new Error('invalid-suggestion')
   }
-  return {
-    advice: advice.trim(),
-    ...(typeof completion === 'string' && completion.trim() ? { completion } : {}),
-  }
+  return { advice: advice.trim() }
 }
 
 export function sameModel(a: ModelSelection, b: ModelSelection): boolean {

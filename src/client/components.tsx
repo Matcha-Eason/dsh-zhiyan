@@ -44,8 +44,6 @@ export function ComposerControl({
     const card = anchor.current?.closest('[data-composer-card]')
     const editor = card?.querySelector<HTMLElement>('[data-composer-input]')
     if (!editor) return
-    let selectionVersion = 0
-    let previous: DraftSnapshot | undefined
     const snapshot = (): DraftSnapshot => {
       const { input, session, context, modelState } = latest.current
       const span = inputActions.captureInsertion()
@@ -53,8 +51,6 @@ export function ComposerControl({
       const focused = document.activeElement === editor && selection !== null
         && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode)
       const composing = editor.hasAttribute('data-composer-composing')
-      if (previous && (focused !== previous.focused || composing !== previous.composing
-        || (span.draftRev === previous.draftRev && (span.start !== previous.start || span.end !== previous.end)))) selectionVersion++
       const blocked = session.removed || session.openState !== 'open' ? '等待会话就绪'
           : session.subagent !== null ? '第一版仅支持主会话'
             : input.phase !== 'plain' ? '原生输入交互中，预览暂停'
@@ -62,23 +58,17 @@ export function ComposerControl({
                 : !context ? '等待预览服务就绪'
                   : modelState.pending !== null ? '正在切换主模型'
                     : !modelState.current || modelState.routable !== true ? '当前主模型不可用' : undefined
-      previous = {
+      return {
         sessionId, draft: input.draft, draftRev: input.draftRev,
         contextRevision: context?.revision ?? -1, model: modelState.current,
-        start: span.start, end: span.end, selectionVersion, focused, composing, running: session.running, blocked,
+        start: span.start, end: span.end, focused, composing, running: session.running, blocked,
       }
-      return previous
     }
     read.current = snapshot
     const update = () => controller.update(snapshot())
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || editor.hasAttribute('data-composer-composing')) return
       if (event.key === 'Enter' && !event.shiftKey) controller.dismiss()
-      // Even an away-and-back movement inside one selectionchange batch invalidates Tab.
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-        selectionVersion++
-        update()
-      }
     }
     const observer = new MutationObserver(update)
     observer.observe(editor, { attributes: true, attributeFilter: ['data-composer-composing'] })
@@ -90,11 +80,6 @@ export function ComposerControl({
       if (event.type !== 'keydown' || event.context.modal !== null || !editor.contains(event.context.target)) return
       const key = event.gesture
       if (key.composing || key.defaultPrevented || key.repeat || key.shift || key.control || key.alt || key.meta) return
-      if (key.code === 'Tab') {
-        const fresh = snapshot()
-        controller.update(fresh)
-        if (controller.accept(fresh, inputActions.insertText)) event.consume()
-      }
       if (key.code === 'Escape' && controller.getSnapshot().opinion) {
         controller.dismiss()
         event.consume()
@@ -117,14 +102,14 @@ export function ComposerControl({
   useEffect(() => { void directory.load().catch(() => { /* The shared directory exposes this failure. */ }) }, [directory])
 
   return <button ref={anchor} type="button" style={buttonStyle} aria-pressed={state.enabled}
-    title="开启后主模型会对草稿给出意见，续写可用 Tab 填入。按 Enter 或点击发送后，DSH 才会收到正式任务。"
+    title="开启后主模型会对草稿给出意见、建议或吐槽。按 Enter 或点击发送后，DSH 才会收到正式任务。"
     onMouseDown={event => event.preventDefault()}
     onClick={() => controller.setEnabled(!state.enabled)}>
     {state.enabled ? '● 边写边聊' : '边写边聊'}
   </button>
 }
 
-export function OpinionCard({ controller, inputActions }: { controller: PreviewController } & PropsRuntime<'conversation.input.dock'>) {
+export function OpinionCard({ controller }: { controller: PreviewController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   if (!state.enabled && state.status !== 'error') return null
   const opinion = state.opinion
@@ -146,14 +131,7 @@ export function OpinionCard({ controller, inputActions }: { controller: PreviewC
       <span style={{ flex: 1 }} />
       {opinion && <button type="button" style={buttonStyle} onMouseDown={event => event.preventDefault()} onClick={() => controller.dismiss()} aria-label="清除本条意见" title="清除意见，保留提示框">×</button>}
     </div>
-    {opinion ? <>
-      <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 3 }}>{opinion.advice}</div>
-      {opinion.completion && <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 8, borderTop: '1px solid var(--dsw-alias-border-l3, #ddd)', paddingTop: 8 }}>
-        <span data-keyboard-completion style={{ color: 'var(--dsw-alias-text-tertiary, GrayText)', flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{opinion.completion}</span>
-        <button type="button" style={buttonStyle} title="插入续写，不发送" onMouseDown={event => event.preventDefault()}
-          onClick={() => controller.accept(inputActions.captureInsertion(), inputActions.insertText)}>Tab 采纳</button>
-      </div>}
-    </> : null}
+    {opinion && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 3 }}>{opinion.advice}</div>}
     {state.status === 'error' && state.detail && <details style={{ fontSize: 12 }}><summary aria-label="查看错误详情" title={state.detail}>⋯</summary>{state.detail}</details>}
   </div>
 }

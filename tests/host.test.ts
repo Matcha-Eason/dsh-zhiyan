@@ -113,7 +113,8 @@ test('all generated fields receive the current session persona with rendered var
   assert.match(system, /你是当前会话的搭档，工作区是 \/session\/workspace。/)
   assert.match(system, /称呼用户为队长。/)
   assert.match(system, /所有用户可见的生成内容/)
-  assert.match(system, /completion 可省略/)
+  assert.match(system, /只输出 JSON：\{"advice":"\.\.\."\}/)
+  assert.doesNotMatch(system, /completion/)
   assert.doesNotMatch(system, /tool instructions|runtime context|你是用户边写边聊的思考伙伴/)
   assert.equal(app.assemblies[0]!.signal!.aborted, false)
   app.state.personaPrefix = '新设定：使用克制的书面语。'

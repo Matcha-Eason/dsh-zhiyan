@@ -10,7 +10,6 @@ export interface DraftSnapshot {
   model: ModelSelection | null
   start: number
   end: number
-  selectionVersion: number
   focused: boolean
   composing: boolean
   running: boolean
@@ -19,7 +18,6 @@ export interface DraftSnapshot {
 
 export interface Opinion {
   advice: string
-  completion?: string
   basis: DraftSnapshot
   earlier: boolean
 }
@@ -89,7 +87,6 @@ export class PreviewController {
       } else {
         this.publish({ opinion: {
           ...opinion, earlier: next.draft !== opinion.basis.draft,
-          completion: exactCandidate(opinion.basis, next) ? opinion.completion : undefined,
         } })
       }
     }
@@ -116,19 +113,6 @@ export class PreviewController {
     this.suppressedDraft = this.current?.draft
     this.cancel()
     this.publish({ opinion: undefined, status: 'idle', detail: undefined })
-  }
-
-  accept(span: { start: number; end: number; draftRev: number }, insert: (text: string, span: { start: number; end: number; draftRev: number }) => boolean): boolean {
-    const input = this.current
-    const opinion = this.state.opinion
-    if (!input || !this.state.enabled || !opinion?.completion || !exactCandidate(opinion.basis, input)
-      || input.draftRev !== span.draftRev || input.start !== span.start || input.end !== span.end) return false
-    this.suppressedDraft = input.draft + opinion.completion
-    const inserted = insert(opinion.completion, span)
-    if (!inserted) this.suppressedDraft = undefined
-    this.cancel()
-    this.publish({ opinion: opinion ? { ...opinion, completion: undefined } : undefined, status: 'idle', detail: undefined })
-    return inserted
   }
 
   /** Unmounting a composer invalidates its caret and abandons its preview, preserving the session's opt-in. */
@@ -201,7 +185,7 @@ export class PreviewController {
       this.publish({ metrics: result.metrics })
       this.publish({ status: result.action === 'wait' ? (this.state.opinion ? 'suggested' : 'idle') : 'suggested',
         ...(result.action === 'suggest' ? { opinion: {
-          advice: result.advice, completion: exactCandidate(input, latest) ? result.completion : undefined,
+          advice: result.advice,
           basis: input, earlier: latest.draft !== input.draft,
         } } : {}),
       })
@@ -219,12 +203,6 @@ function sameContext(a: DraftSnapshot, b: DraftSnapshot): boolean {
   return a.sessionId === b.sessionId && a.contextRevision === b.contextRevision
     && a.running === b.running
     && a.model !== null && b.model !== null && sameModel(a.model, b.model)
-}
-
-export function exactCandidate(a: DraftSnapshot, b: DraftSnapshot): boolean {
-  return sameContext(a, b) && a.draft === b.draft && a.draftRev === b.draftRev
-    && a.start === b.start && a.end === b.end && b.end === b.draft.length && b.start === b.end
-    && a.selectionVersion === b.selectionVersion && b.focused && !b.composing && !b.blocked
 }
 
 function previewError(error: unknown): string {
