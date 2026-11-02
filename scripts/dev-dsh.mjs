@@ -10,7 +10,8 @@ const hasEnvFile = await access(envFile).then(() => true, () => false)
 if (hasEnvFile) loadEnvFile(envFile)
 const sourceRoot = resolve(process.env.DSH_SOURCE_ROOT ?? join(root, '../deepseek-harness'))
 const bin = join(sourceRoot, 'apps/cli/lib/bin.js')
-const mainModel = process.env.DSH_KEYBOARD_MAIN_MODEL ?? 'deepseek-v4.1-flash'
+// New sessions default to DeepSeek Pro without thinking; explicit session choices still win.
+const mainModel = process.env.DSH_KEYBOARD_MAIN_MODEL ?? 'deepseek-v4-pro'
 for (const file of [bin, join(root, 'lib/index.js'), join(root, 'lib/client.js')]) {
   await access(file).catch(() => { throw new Error(`Missing ${file}; build the checkout first.`) })
 }
@@ -43,7 +44,7 @@ await writeFile(join(profile, 'package.json'), JSON.stringify({
 const patch = join(dshHome, 'keyboard-dev.patch.json')
 await writeFile(patch, JSON.stringify([
   { id: 'hmr', disabled: true },
-  { id: 'agent-default-model', config: { provider: 'token-plan', model: mainModel } },
+  { id: 'agent-default-model', config: { provider: 'token-plan', model: mainModel, reasoningEffort: 'off' } },
   { id: 'llm-pi-ai', config: { providers: { 'token-plan': {
     displayName: 'Bailian Token Plan',
     apiKeyEnv: 'BAILIAN_TOKEN_PLAN_API_KEY',
@@ -60,7 +61,8 @@ await writeFile(patch, JSON.stringify([
 const child = spawn(process.execPath, [
   bin, '--profile', 'keyboard-dev', '--patch', patch,
   ...process.argv.slice(2),
-  '--no-open', '--port', process.env.DSH_KEYBOARD_PORT ?? '3082',
+  ...(process.env.DSH_KEYBOARD_OPEN === '1' ? [] : ['--no-open']),
+  '--port', process.env.DSH_KEYBOARD_PORT ?? '3082',
 ], {
   cwd: root,
   stdio: 'inherit',

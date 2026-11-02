@@ -60,6 +60,8 @@ System 1 使用百炼 Token Plan `decision-model-preview` 的 `/compatible-mode/
 
 辅助调用沿用会话选中的模型与推理等级。Host 通过 `sessionController.resolveAgent()` 取得 Agent，组装系统提示词，仅保留 DSH 身份及人设前后缀，并用 `renderPrompt()` 处理变量和 preset 覆盖；随后追加任务约束，不另设身份。人设读取失败会报错。
 
+启动器默认 DeepSeek Pro（`deepseek-v4-pro`）/ Off，显式关闭思考；已有会话选择优先，详见 README。
+
 主模型禁用工具，输出预算1,200 tokens。完整正常结束后解析 JSON，仅提取必填的 advice，最多600字符。意见以助手口吻参与讨论，不续写用户草稿；旧响应中的额外字段不展示。格式校验保证有意见，是否具体、有用及符合人设仍需实测。
 
 截断、工具调用、空意见和错误格式不展示，不切备用模型。辅助意见不写入正式会话。

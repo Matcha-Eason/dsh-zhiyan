@@ -34,6 +34,18 @@ cp .env.example .env.local
 
 ## 本机启动
 
+快速测试：在 macOS Finder 双击仓库中的 `quick-test.command`，或在任意终端运行：
+
+```bash
+/Users/gyc/Desktop/TECH-playground/dsh/dsh-keyboard-duplex/quick-test.command
+```
+
+脚本先执行类型检查、测试和构建，再启动 DSH 并自动打开浏览器，终端会显示四个测试场景。页面中需手动开启“边写边聊”。按 Ctrl+C 停止服务。需已完成上面的依赖安装与 DSH 构建。
+
+配置优先使用显式 `DSH_ENV_FILE` 或环境中的密钥；否则使用本仓库 `.env.local`，本机没有该文件时复用相邻语音项目的 `.env.local`。脚本不复制或打印密钥。真实讨论产生模型用量。
+
+仅启动服务、不自动打开浏览器：
+
 ```bash
 cd /Users/gyc/Desktop/TECH-playground/dsh/dsh-keyboard-duplex
 DSH_ENV_FILE=../dsh-realtime-voice-WITHsystem1/.env.local npm run dev:dsh
@@ -79,7 +91,9 @@ System 1 使用百炼 Token Plan `decision-model-preview`，不生成用户可�
 
 普通停顿约 800 ms；标点前的稳定片段至少八字符时，可在 300 ms 后提前评估。每会话只保留一个在途请求和最新快照，同一草稿不轮询。决策请求最短间隔 750 ms、每分钟最多 40 次；主模型意见最短间隔 5 秒、每分钟最多 6 次。被限频的草稿需继续编辑才会重新评估。
 
-Host 配置：`decisionCredential` 默认 `BAILIAN_TOKEN_PLAN_API_KEY`；`decisionTimeoutMs` 默认 4,000；`mainTimeoutMs` 默认 20,000。开发实例默认主模型 `deepseek-v4.1-flash`，可在 DSH 里切换。Token Plan provider 的兼容项由启动器设置，辅助请求始终跟随会话模型。
+Host 配置：`decisionCredential` 默认 `BAILIAN_TOKEN_PLAN_API_KEY`；`decisionTimeoutMs` 默认 4,000；`mainTimeoutMs` 默认 20,000。开发与快速测试实例默认主模型为 **DeepSeek Pro（`deepseek-v4-pro`），思考关闭（`reasoningEffort: off`）**。启动器同时设置 provider 的 `reasoning: off`，通过百炼兼容配置发送 `enable_thinking: false`。`DSH_KEYBOARD_MAIN_MODEL` 可覆盖默认模型。
+
+重启后，新建未指定模型的会话使用上述默认值；已有会话的显式模型/推理选择保留，需要在 DSH 模型选择器手动切为 **DeepSeek Pro / Off**。辅助意见始终跟随当前会话选择。作为插件接入其他 DSH 实例时，沿用宿主模型设置；System 1 仍使用 `decision-model-preview`。
 
 辅助意见不写入正式对话；用户发送时仍提交完整草稿，本版不提供前句去重或 KV 接续，也不承诺节省总 token。System 1 用量未纳入 DSH 底部原生统计。
 
