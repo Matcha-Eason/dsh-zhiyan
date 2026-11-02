@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { Shortcuts } from '@deepseek-ai/dsh-client-shortcuts/client'
-import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '../host/context.ts'
@@ -23,29 +22,27 @@ const buttonStyle: CSSProperties = {
 export interface ComposerInjected {
   controller: PreviewController
   shortcuts: Shortcuts
-  directory: ModelDirectory
 }
 
 /** Native state supplies text; the scoped DOM bridge supplies focus, composition and selection only. */
 export function ComposerControl({
-  controller, shortcuts, directory, sessionId, useInput, useSession, useProjection, inputActions,
+  controller, shortcuts, sessionId, useInput, useSession, useProjection, inputActions,
 }: ComposerInjected & PropsRuntime<'conversation.input.right'>) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const input = useInput(value => value)
   const session = useSession(value => value)
   const context = useProjection('keyboardDuplex')
-  const modelState = useSyncExternalStore(directory.store.subscribe, directory.store.getSnapshot)
   const anchor = useRef<HTMLButtonElement>(null)
   const read = useRef<(() => DraftSnapshot) | null>(null)
-  const latest = useRef({ input, session, context, modelState })
-  latest.current = { input, session, context, modelState }
+  const latest = useRef({ input, session, context })
+  latest.current = { input, session, context }
 
   useLayoutEffect(() => {
     const card = anchor.current?.closest('[data-composer-card]')
     const editor = card?.querySelector<HTMLElement>('[data-composer-input]')
     if (!editor) return
     const snapshot = (): DraftSnapshot => {
-      const { input, session, context, modelState } = latest.current
+      const { input, session, context } = latest.current
       const span = inputActions.captureInsertion()
       const selection = document.getSelection()
       const focused = document.activeElement === editor && selection !== null
@@ -55,12 +52,10 @@ export function ComposerControl({
           : session.subagent !== null ? '第一版仅支持主会话'
             : input.phase !== 'plain' ? '原生输入交互中，预览暂停'
               : input.attachmentIds.length > 0 || input.occurrences.length > 0 ? '第一版只分析纯文本，请移除附件或引用'
-                : !context ? '等待预览服务就绪'
-                  : modelState.pending !== null ? '正在切换主模型'
-                    : !modelState.current || modelState.routable !== true ? '当前主模型不可用' : undefined
+                : !context ? '等待预览服务就绪' : undefined
       return {
         sessionId, draft: input.draft, draftRev: input.draftRev,
-        contextRevision: context?.revision ?? -1, model: modelState.current,
+        contextRevision: context?.revision ?? -1,
         start: span.start, end: span.end, focused, composing, running: session.running, blocked,
       }
     }
@@ -98,8 +93,7 @@ export function ComposerControl({
     }
   }, [controller, inputActions, sessionId, shortcuts])
 
-  useLayoutEffect(() => { if (read.current) controller.update(read.current()) }, [controller, input, session, context, modelState])
-  useEffect(() => { void directory.load().catch(() => { /* The shared directory exposes this failure. */ }) }, [directory])
+  useLayoutEffect(() => { if (read.current) controller.update(read.current()) }, [controller, input, session, context])
 
   return <button ref={anchor} type="button" style={buttonStyle} aria-pressed={state.enabled}
     title="开启后主模型会对草稿给出意见、建议或吐槽。按 Enter 或点击发送后，DSH 才会收到正式任务。"

@@ -1,3 +1,5 @@
+export const SETTINGS_PATH = '/dsh-keyboard-duplex/models'
+export const MAIN_MODEL = { provider: 'zhiyan-deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'off' } as const
 export const PREVIEW_PATH = '/dsh-keyboard-duplex/preview'
 export const MAX_DRAFT_LENGTH = 8_000
 export const DECISION_INTERVAL_MS = 750
@@ -14,7 +16,6 @@ export interface PreviewRequest {
   draft: string
   draftRev: number
   contextRevision: number
-  model: ModelSelection
   running: boolean
   previousAdvice?: string
 }
@@ -51,8 +52,4 @@ export function parseSuggestion(text: string): { advice: string } {
     throw new Error('invalid-suggestion')
   }
   return { advice: advice.trim() }
-}
-
-export function sameModel(a: ModelSelection, b: ModelSelection): boolean {
-  return a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 }

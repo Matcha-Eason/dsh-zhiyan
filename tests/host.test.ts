@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { apply } from '../src/index.ts'
+import { MAIN_MODEL, PREVIEW_PATH, SETTINGS_PATH } from '../src/protocol.ts'
 import { contextProjection } from '../src/host/context.ts'
 
 const request = {
@@ -16,7 +17,8 @@ const request = {
 }
 
 function host(t: TestContext) {
-  let handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+  const handlers = new Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>()
+  const records = new Map<string, any>(['deepseek', 'jev'].map(id => ['dsh-keyboard-duplex/' + id, { kind: 'api-key', key: 'test-key-never-log' }]))
   const events = new Map<string, (...args: any[]) => void>()
   const calls: GenerateOptions[] = []
   let disposed = 0
@@ -58,8 +60,15 @@ function host(t: TestContext) {
       projections: { values: { keyboardDuplex: { revision: state.revision, messages: [] }, modelSelection: { next: state.selected } } },
       [Symbol.dispose]() { disposed++ },
     }) },
-    credentials: { resolve: async () => ({ value: 'test-key-never-log' }) },
+    credentials: {
+      readRecord: async (key: string) => records.get(key),
+      describeRecord: async (key: string) => ({ configured: records.has(key), writable: true }),
+      modifyRecord: async (key: string, mutate: (record: any) => Promise<any>) => { records.set(key, await mutate(records.get(key))); events.get('credentials/record-updated')?.(key) },
+      deleteRecord: async (key: string) => { records.delete(key); events.get('credentials/record-updated')?.(key) },
+    },
+    inject() {},
     llm: {
+      registerAdapter: () => ({ replace() {} }),
       resolveCallConfig: async (selection: object) => selection,
       stream: async function* (options: GenerateOptions): AsyncIterable<StreamChunk> {
         calls.push(options)
@@ -71,16 +80,16 @@ function host(t: TestContext) {
     logger: { info() {} },
     on: (name: string, listener: (...args: any[]) => void) => { events.set(name, listener) },
     effect: (setup: () => (() => void) | void) => { const dispose = setup(); if (dispose) t.after(dispose) },
-    webServer: { register: (route: { handler: typeof handler }) => { handler = route.handler; return () => {} } },
+    webServer: { register: (route: { path: string; handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> }) => { handlers.set(route.path, route.handler); return () => {} } },
   }
-  apply(ctx as unknown as Context, { decisionCredential: 'TEST', decisionTimeoutMs: 1_000, mainTimeoutMs: 1_000 })
+  apply(ctx as unknown as Context)
   return {
-    state, calls, events, assemblies,
+    state, calls, events, assemblies, records,
     get decisions() { return decisions }, get disposed() { return disposed },
-    async post(body: unknown = request, headers: Record<string, string> = {}) {
+    async post(body: unknown = request, headers: Record<string, string> = {}, path = PREVIEW_PATH, method = 'POST') {
       const req = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), {
         headers: { host: 'localhost:3082', 'content-type': 'application/json', ...headers },
-        socket: { remoteAddress: '127.0.0.1' }, method: 'POST',
+        socket: { remoteAddress: '127.0.0.1' }, method,
       })
       let status = 0, result = ''
       const res = Object.assign(new EventEmitter(), {
@@ -88,19 +97,20 @@ function host(t: TestContext) {
         writeHead(code: number) { status = code },
         end(value: string) { result = value; this.writableEnded = true },
       })
-      await handler(req as unknown as IncomingMessage, res as unknown as ServerResponse)
+      await handlers.get(path)!(req as unknown as IncomingMessage, res as unknown as ServerResponse)
       return { status, body: JSON.parse(result) }
     },
   }
 }
 
-test('host resolves session selection, never global fallback when a session choice exists', async t => {
+test('host uses fixed official Pro / Off regardless of the session model', async t => {
   const app = host(t)
   const response = await app.post()
   assert.equal(response.status, 200)
   assert.equal(response.body.advice, '先缩小范围。')
-  assert.equal(app.calls[0]!.provider, 'session-provider')
-  assert.equal(app.calls[0]!.model, 'selected-main')
+  assert.equal(app.calls[0]!.provider, MAIN_MODEL.provider)
+  assert.equal(app.calls[0]!.model, MAIN_MODEL.model)
+  assert.equal(app.calls[0]!.reasoningEffort, 'off')
   assert.equal(app.disposed, 1)
   assert.deepEqual(app.calls[0]!.tools, [])
 })
@@ -134,14 +144,14 @@ test('unavailable session persona reports an error without an invented fallback 
   assert.equal(app.calls.length, 0)
 })
 
-test('client cannot select an unselected provider or analyze stale context', async t => {
+test('stale context is rejected and client model overrides are ignored', async t => {
   const app = host(t)
-  const wrongModel = await app.post({ ...request, model: { provider: 'global', model: 'wrong-model' } })
-  assert.equal(wrongModel.status, 409)
-  assert.equal(wrongModel.body.error, 'model-changed')
   assert.equal((await app.post({ ...request, contextRevision: 7 })).body.error, 'context-changed')
   assert.equal(app.decisions, 0)
-  assert.equal(app.calls.length, 0)
+  const response = await app.post({ ...request, model: { provider: 'foreign', model: 'wrong', reasoningEffort: 'high' } })
+  assert.equal(response.status, 200)
+  assert.equal(app.calls[0]!.provider, MAIN_MODEL.provider)
+  assert.equal(app.calls[0]!.reasoningEffort, 'off')
 })
 
 test('stale running state and foreign Origin are refused before any model call', async t => {
@@ -174,12 +184,12 @@ for (const cause of ['session/event'] as const) test(`${cause} aborts the auxili
   assert.equal(app.disposed, 1)
 })
 
-test('a blank session with no model selection uses the native default service', async t => {
+test('a blank session uses the plugin model without requiring a session selection', async t => {
   const app = host(t)
   app.state.selected = null
   assert.equal((await app.post({ ...request, model: { provider: 'global', model: 'wrong-model' } })).status, 200)
-  assert.equal(app.calls[0]!.provider, 'global')
-  assert.equal(app.calls[0]!.model, 'wrong-model')
+  assert.equal(app.calls[0]!.provider, MAIN_MODEL.provider)
+  assert.equal(app.calls[0]!.model, MAIN_MODEL.model)
 })
 
 test('invalid or oversized draft fails before reading provider credentials', async t => {
@@ -205,4 +215,50 @@ test('context projection is bounded and never carries reasoning or tool results'
   const replaced = contextProjection.apply(state, { type: 'system/message', seq: 10, surfaceOp: { op: 'replace', startSeq: 0, endSeq: 8 }, data: {} } as any)
   assert.equal(replaced.messages.length, 0)
   assert.equal(replaced.revision, 10)
+})
+
+test('Models settings save keys separately without exposing secrets, and reject foreign writes', async t => {
+  const app = host(t)
+  app.records.clear()
+  const status = await app.post({}, {}, SETTINGS_PATH, 'GET')
+  assert.deepEqual(status.body.deepseek, { configured: false, writable: true })
+  const foreign = await app.post({ provider: 'deepseek', apiKey: 'secret-for-test' }, { origin: 'https://foreign.example' }, SETTINGS_PATH)
+  assert.equal(foreign.status, 403)
+  assert.equal(app.records.size, 0)
+  const saved = await app.post({ provider: 'deepseek', apiKey: ' secret-for-test ' }, {}, SETTINGS_PATH)
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.deepseek.configured, true)
+  assert.equal(saved.body.jev.configured, false)
+  assert.equal(JSON.stringify(saved.body).includes('secret-for-test'), false)
+  assert.equal(app.records.get('dsh-keyboard-duplex/deepseek').key, 'secret-for-test')
+  assert.equal((await app.post({ provider: 'deepseek', apiKey: '  ' }, {}, SETTINGS_PATH)).status, 400)
+  assert.equal((await app.post({ provider: 'other', apiKey: 'value' }, {}, SETTINGS_PATH)).status, 400)
+  assert.equal((await app.post({ provider: 'deepseek', apiKey: 'value', baseURL: 'https://foreign.example' }, {}, SETTINGS_PATH)).status, 400)
+  const removed = await app.post({ provider: 'deepseek' }, {}, SETTINGS_PATH, 'DELETE')
+  assert.equal(removed.body.deepseek.configured, false)
+  assert.equal(app.records.size, 0)
+  assert.equal(app.decisions, 0, 'saving credentials does not call models')
+})
+
+test('missing official credentials never fall back to ambient or session providers', async t => {
+  const app = host(t)
+  app.records.delete('dsh-keyboard-duplex/jev')
+  assert.equal((await app.post()).body.error, 'decision-key-missing')
+  app.records.set('dsh-keyboard-duplex/jev', { kind: 'api-key', key: 'jev-test' })
+  app.records.delete('dsh-keyboard-duplex/deepseek')
+  assert.equal((await app.post()).body.error, 'main-key-missing')
+  assert.equal(app.decisions, 0)
+  assert.equal(app.calls.length, 0)
+})
+
+test('changing a credential cancels an in-flight opinion', async t => {
+  const app = host(t)
+  app.state.delay = true
+  const pending = app.post()
+  await setImmediate()
+  assert.equal(app.calls.length, 1)
+  const saved = await app.post({ provider: 'jev', apiKey: 'replacement-test' }, {}, SETTINGS_PATH)
+  assert.equal(saved.status, 200)
+  assert.equal(app.calls[0]!.signal!.aborted, true)
+  assert.equal((await pending).body.error, 'preview-cancelled')
 })

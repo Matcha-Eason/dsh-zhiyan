@@ -2,20 +2,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { preview } from '../src/host/preview.ts'
-import { parseSuggestion, type PreviewRequest } from '../src/protocol.ts'
+import { MAIN_MODEL, parseSuggestion, type PreviewRequest } from '../src/protocol.ts'
 
 const request: PreviewRequest = {
   running: false, sessionId: 's1', draft: '我想同时做十个功能，第一周全部上线。', draftRev: 1, contextRevision: -1,
-  model: { provider: 'session-provider', model: 'selected-main', reasoningEffort: 'off' },
 }
 const context = { revision: -1, messages: [] }
 const options = {
   apiKey: 'test-only', signal: new AbortController().signal, decisionTimeoutMs: 1_000, mainTimeoutMs: 1_000,
   persona: async () => '你是 DSH 会话里设定的简洁搭档。',
-  fetch: async () => Response.json({ answers: { action: { type: 'choice', choice: 'suggest' } } }),
+  fetch: async (url: string | URL | Request, init?: RequestInit) => {
+    assert.equal(url, 'https://api.typesafe.ai/v1/systemone')
+    assert.equal(JSON.parse(String(init?.body)).model, 'jev-latest')
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer test-only')
+    return Response.json({ answers: { action: { type: 'choice', choice: 'suggest' } } })
+  },
   stream: async function* (call: GenerateOptions): AsyncIterable<StreamChunk> {
-    assert.equal(call.provider, request.model.provider)
-    assert.equal(call.model, request.model.model)
+    assert.equal(call.provider, MAIN_MODEL.provider)
+    assert.equal(call.model, MAIN_MODEL.model)
     assert.equal(call.reasoningEffort, 'off')
     assert.deepEqual(call.tools, [])
     assert.equal(call.messages.length, 1)
@@ -27,7 +31,7 @@ const options = {
   },
 }
 
-test('opinion-only response is valid; selected main route is used, with no tools', async () => {
+test('opinion-only response is valid; fixed official Pro route is used, with no tools', async () => {
   const result = await preview(request, context, options)
   assert.equal(result.action, 'suggest')
   if (result.action !== 'suggest') return

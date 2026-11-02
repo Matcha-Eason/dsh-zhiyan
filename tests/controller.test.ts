@@ -7,7 +7,6 @@ import type { PreviewRequest, PreviewResult } from '../src/protocol.ts'
 function draft(text = '我想做个提醒应用', overrides: Partial<DraftSnapshot> = {}): DraftSnapshot {
   return {
     sessionId: 's1', draft: text, draftRev: 1, contextRevision: -1,
-    model: { provider: 'chosen-provider', model: 'chosen-model' },
     start: text.length, end: text.length, focused: true, composing: false, running: false, ...overrides,
   }
 }
@@ -113,7 +112,6 @@ test('clearing during a decision cancels it and does not revive a late opinion',
 })
 
 for (const [name, change] of [
-  ['model', { model: { provider: 'another', model: 'another' } }],
   ['context', { contextRevision: 25 }],
   ['session', { sessionId: 's2' }],
   ['formal task', { blocked: '正式任务进行中，预览暂停' }],

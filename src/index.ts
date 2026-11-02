@@ -1,33 +1,20 @@
 import type { Context } from '@deepseek-ai/cordis'
-import Schema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import { PERSONA_PREFIX_SECTION, PERSONA_SUFFIX_SECTION, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { contextProjection } from './host/context.ts'
+import { registerModels } from './host/models.ts'
 import { preview } from './host/preview.ts'
 import { HttpError, readJson, requireLocalRequest } from './host/http.ts'
-import { DECISION_INTERVAL_MS, DECISION_PER_MINUTE, MAX_DRAFT_LENGTH, PREVIEW_PATH } from './protocol.ts'
+import { DECISION_INTERVAL_MS, DECISION_PER_MINUTE, MAX_DRAFT_LENGTH, MAIN_MODEL, PREVIEW_PATH } from './protocol.ts'
 
 export const name = 'dsh-keyboard-duplex'
-export const inject = ['webServer', 'credentials', 'llm', 'agents', 'sessions', 'sessionQuery', 'sessionProjections', 'agentDefaultModel', 'sessionController', 'systemPrompt']
-
-export interface Config {
-  decisionCredential: string
-  decisionTimeoutMs: number
-  mainTimeoutMs: number
-}
-export const Config = Schema.object({
-  decisionCredential: Schema.string().default('BAILIAN_TOKEN_PLAN_API_KEY'),
-  decisionTimeoutMs: Schema.number().min(500).max(30_000).default(4_000),
-  mainTimeoutMs: Schema.number().min(1_000).max(120_000).default(20_000),
-})
+export const inject = ['webServer', 'credentials', 'llm', 'agents', 'sessions', 'sessionQuery', 'sessionProjections', 'sessionController', 'systemPrompt']
 
 const requestSchema = z.object({
   sessionId: z.string().min(1).max(256),
@@ -35,11 +22,11 @@ const requestSchema = z.object({
   draftRev: z.number().int().nonnegative(),
   contextRevision: z.number().int().min(-1),
   running: z.boolean(),
-  model: z.object({ provider: z.string().min(1).max(256), model: z.string().min(1).max(256), reasoningEffort: z.string().max(128).optional() }),
   previousAdvice: z.string().max(600).optional(),
 })
 
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context): void {
+  registerModels(ctx)
   ctx.sessionProjections.register(contextProjection)
   const active = new Map<string, AbortController>()
   const attempts = new Map<string, number[]>()
@@ -48,6 +35,11 @@ export function apply(ctx: Context, config: Config): void {
     if (event.type === 'model/selection' || event.type === 'user/message' || event.type === 'assistant/message'
       || event.type === 'request/header' || ('surfaceOp' in event && typeof event.surfaceOp === 'object')) {
       active.get(session.id)?.abort()
+    }
+  })
+  ctx.on('credentials/record-updated', key => {
+    if (key === credentialKey(name, 'deepseek') || key === credentialKey(name, 'jev')) {
+      for (const controller of active.values()) controller.abort()
     }
   })
   ctx.on('session/disposed', session => {
@@ -81,31 +73,21 @@ export function apply(ctx: Context, config: Config): void {
         using observation = await ctx.sessionQuery.observeSession(id, { signal: controller.signal })
         const context = observation.projections?.values.keyboardDuplex
         if (!context || context.revision !== request.contextRevision) throw new HttpError(409, 'context-changed')
-        const selected = observation.projections?.values.modelSelection?.next ?? ctx.agentDefaultModel.currentSelection()
-        const actual = await ctx.llm.resolveCallConfig({
-          provider: selected.provider, model: selected.model,
-          ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) }),
-        })
-        if (request.model.provider !== actual.provider || request.model.model !== actual.model
-          || (request.model.reasoningEffort !== undefined && request.model.reasoningEffort !== actual.reasoningEffort)) {
-          throw new HttpError(409, 'model-changed')
-        }
         const now = Date.now()
         for (const [key, times] of attempts) {
           if ((times.at(-1) ?? 0) <= now - 60_000) attempts.delete(key)
         }
         const times = (attempts.get(id) ?? []).filter(time => time > now - 60_000)
         if (times.length >= DECISION_PER_MINUTE || (times.length > 0 && now - times.at(-1)! < DECISION_INTERVAL_MS)) throw new HttpError(429, 'preview-rate-limit')
-        const credential = await ctx.credentials.resolve(credentialRef(config.decisionCredential))
-        if (!credential?.value) throw new HttpError(503, 'decision-key-missing')
+        const credential = await ctx.credentials.readRecord(credentialKey(name, 'jev'))
+        if (credential?.kind !== 'api-key' || !credential.key) throw new HttpError(503, 'decision-key-missing')
+        const mainKey = await ctx.credentials.readRecord(credentialKey(name, 'deepseek'))
+        if (mainKey?.kind !== 'api-key' || !mainKey.key) throw new HttpError(503, 'main-key-missing')
         controller.signal.throwIfAborted()
         attempts.set(id, [...times, now])
         outcome = 'started'
-        const result = await preview({ ...request, model: {
-          provider: actual.provider, model: actual.model,
-          ...(actual.reasoningEffort === undefined ? {} : { reasoningEffort: actual.reasoningEffort }),
-        } }, context, {
-          apiKey: credential.value, signal: controller.signal, fetch,
+        const result = await preview(request, context, {
+          apiKey: credential.key, signal: controller.signal, fetch,
           stream: options => ctx.llm.stream(options),
           persona: async signal => {
             const resolved = await ctx.sessionController.resolveAgent(id)
@@ -118,7 +100,7 @@ export function apply(ctx: Context, config: Config): void {
                 || section.name === PERSONA_PREFIX_SECTION || section.name === PERSONA_SUFFIX_SECTION),
             })
           },
-          decisionTimeoutMs: config.decisionTimeoutMs, mainTimeoutMs: config.mainTimeoutMs,
+          decisionTimeoutMs: 4_000, mainTimeoutMs: 30_000,
           allowSuggestion: () => {
             const at = Date.now()
             const recent = (suggestions.get(id) ?? []).filter(time => time > at - 60_000)
@@ -129,15 +111,8 @@ export function apply(ctx: Context, config: Config): void {
         })
         controller.signal.throwIfAborted()
         if ((ctx.agents.get(id)?.status === 'running') !== request.running) throw new HttpError(409, 'context-changed')
-        // Global defaults can change while a blank session has no explicit selection.
-        if (observation.projections?.values.modelSelection?.next == null) {
-          const latest = ctx.agentDefaultModel.currentSelection()
-          if (latest.provider !== selected.provider || latest.model !== selected.model || latest.reasoningEffort !== selected.reasoningEffort) {
-            throw new HttpError(409, 'model-changed')
-          }
-        }
         outcome = result.action
-        ctx.logger.info('keyboard-duplex metrics %s', JSON.stringify({ sessionId, model: actual.model, ...result.metrics }))
+        ctx.logger.info('keyboard-duplex metrics %s', JSON.stringify({ sessionId, model: MAIN_MODEL.model, ...result.metrics }))
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
         res.end(JSON.stringify(result))
       } catch (error) {

@@ -3,6 +3,7 @@ import { access, lstat, mkdir, realpath, symlink, writeFile } from 'node:fs/prom
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadEnvFile } from 'node:process'
+import { MAIN_MODEL } from '../lib/protocol.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const envFile = resolve(process.env.DSH_ENV_FILE ?? join(root, '.env.local'))
@@ -10,8 +11,6 @@ const hasEnvFile = await access(envFile).then(() => true, () => false)
 if (hasEnvFile) loadEnvFile(envFile)
 const sourceRoot = resolve(process.env.DSH_SOURCE_ROOT ?? join(root, '../deepseek-harness'))
 const bin = join(sourceRoot, 'apps/cli/lib/bin.js')
-// New sessions default to DeepSeek Pro without thinking; explicit session choices still win.
-const mainModel = process.env.DSH_KEYBOARD_MAIN_MODEL ?? 'deepseek-v4-pro'
 for (const file of [bin, join(root, 'lib/index.js'), join(root, 'lib/client.js')]) {
   await access(file).catch(() => { throw new Error(`Missing ${file}; build the checkout first.`) })
 }
@@ -44,18 +43,8 @@ await writeFile(join(profile, 'package.json'), JSON.stringify({
 const patch = join(dshHome, 'keyboard-dev.patch.json')
 await writeFile(patch, JSON.stringify([
   { id: 'hmr', disabled: true },
-  { id: 'agent-default-model', config: { provider: 'token-plan', model: mainModel, reasoningEffort: 'off' } },
-  { id: 'llm-pi-ai', config: { providers: { 'token-plan': {
-    displayName: 'Bailian Token Plan',
-    apiKeyEnv: 'BAILIAN_TOKEN_PLAN_API_KEY',
-    api: 'openai-completions',
-    baseURL: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-    reasoning: 'off',
-    // Bailian uses enable_thinking even for DeepSeek. Declaring no reasoning
-    // support would omit the field and leave the provider's thinking enabled.
-    compat: { thinkingFormat: 'qwen', supportsDeveloperRole: false },
-    models: [...new Set([mainModel, 'deepseek-v4.1-flash', 'qwen3.8-flash'])].map(id => ({ id, reasoningEfforts: { off: null, high: 'high' } })),
-  } } } },
+  { id: 'ui-settings-models', config: { credentialOnboarding: false } },
+  { id: 'agent-default-model', config: MAIN_MODEL },
 ], null, 2) + '\n')
 
 const child = spawn(process.execPath, [

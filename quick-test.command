@@ -2,18 +2,6 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 
-# Prefer this checkout's configuration; reuse the existing local voice setup otherwise.
-if [[ -z "${DSH_ENV_FILE:-}" && -z "${BAILIAN_TOKEN_PLAN_API_KEY:-}" ]]; then
-  if [[ -f .env.local ]]; then
-    export DSH_ENV_FILE="$PWD/.env.local"
-  elif [[ -f ../dsh-realtime-voice-WITHsystem1/.env.local ]]; then
-    export DSH_ENV_FILE="$PWD/../dsh-realtime-voice-WITHsystem1/.env.local"
-  else
-    printf '%s\n' '请先复制 .env.example 为 .env.local，填入 BAILIAN_TOKEN_PLAN_API_KEY 后重试。'
-    exit 1
-  fi
-fi
-
 printf '%s\n' '正在检查并构建知言…'
 npm run check
 
@@ -21,7 +9,8 @@ cat <<'GUIDE'
 
 检查通过，即将启动 DSH 并打开浏览器。
 默认主模型：DeepSeek Pro（deepseek-v4-pro），思考关闭（Off）。
-环境变量可覆盖模型；已有会话请在模型选择器确认 Pro / Off，或新建会话。
+首次使用：设置 → 模型 → 知言，分别保存 DeepSeek 官方和 JEV（TypeSafe）官方 API Key。
+无需 .env 密钥或百炼账户；之后启动沿用已保存的配置。
 在页面中新建会话，点击输入框旁的「边写边聊」开启，然后测试：
 
 1. 输入以下半句话，停顿几秒，不按 Enter：

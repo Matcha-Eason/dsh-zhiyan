@@ -1,5 +1,15 @@
 # 验证记录
 
+## 2026-11-02：0.3.0 官方模型与界面配置
+
+新增 DSH「设置 → 模型 → 知言」扩展卡，只填写 DeepSeek / JEV 两个 API Key；原生凭据库按插件分开存储，接口不返回密钥。意见固定 DeepSeek 官方 Pro / Off，决策固定 TypeSafe 官方 `jev-latest`。移除百炼与会话模型依赖，保留会话人设；快速测试入口不再要求 .env 密钥。
+
+`npm run check` 通过：类型检查、41 项测试、构建。覆盖设置状态、保存/移除、外源请求拒绝、缺 Key 无回退、更换 Key 取消在途请求。原生 DeepSeek 适配器的模拟传输测试核对实际 URL 为 `https://api.deepseek.com/anthropic/v1/messages`，模型 Pro、thinking disabled、temperature 0.7、max_tokens 1200，并验证替换密钥在下一次请求生效。JEV 请求测试核对官方地址及 `jev-latest`。
+
+真实页面使用临时 3083 端口验证：配置卡正常展示，输入无效测试占位值后保存成功、输入框清空、状态变为已配置；移除后恢复未配置。占位值已清除，没有调用真实模型。截图：`.local/zhiyan-model-settings.png`。临时服务已停止，原有 3082 服务未中断。
+
+未提供两家的官方 Key，因此本轮未验证真实鉴权、额度与生成延迟。以下是历史记录；其中百炼、跟随会话模型及环境变量密钥等旧配置不代表 0.3.0 行为。
+
 ## 2026-11-02：快速测试入口与默认 Pro / Off
 
 新增可执行 `quick-test.command`：先检查和构建，再启动 DSH、自动打开浏览器，并打印四个手工测试场景。启动器默认模型改为 `deepseek-v4-pro`，Agent 默认选择显式设置 `reasoningEffort: off`，provider 保持 `reasoning: off` 与百炼兼容配置。已有会话的显式选择保留。

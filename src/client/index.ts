@@ -3,16 +3,20 @@ import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import { ModelSettings } from './settings.tsx'
 import { PREVIEW_PATH, type PreviewResult } from '../protocol.ts'
 import { PreviewController } from './controller.ts'
 import { ComposerControl, OpinionCard } from './components.tsx'
 
 export const name = 'dsh-keyboard-duplex-client'
-export const inject = ['slots', 'sessions', 'shortcuts', 'modelDirectories', 'remote', 'remote.session']
+export const inject = ['slots', 'sessions', 'shortcuts', 'remote', 'remote.session']
 
 // Host and Client declare different `sessions` services; this package builds both halves.
 export function apply(ctx: Omit<Context, 'sessions'> & { sessions: ISessions }): void {
+  ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
+    name: 'settings.models.footer', id: 'zhiyan-model-settings', order: 20,
+  }, ModelSettings))
   const controllers = new Map<SessionId, PreviewController>()
   const controllerFor = (sessionId: SessionId): PreviewController => {
     const existing = controllers.get(sessionId)
@@ -36,7 +40,7 @@ export function apply(ctx: Omit<Context, 'sessions'> & { sessions: ISessions }):
   ctx.effect(() => () => { for (const controller of controllers.values()) controller.dispose(); controllers.clear() }, 'keyboard-duplex: plugin lifetime')
   ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
     name: 'conversation.input.right', id: 'keyboard-duplex-toggle', order: 25,
-    inject: sessionId => ({ controller: controllerFor(sessionId), shortcuts: ctx.shortcuts, directory: ctx.modelDirectories.directoryFor(sessionId) }),
+    inject: sessionId => ({ controller: controllerFor(sessionId), shortcuts: ctx.shortcuts }),
   }, ComposerControl))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
     name: 'conversation.input.dock', id: 'keyboard-duplex-opinion', order: 20,

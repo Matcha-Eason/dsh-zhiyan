@@ -1,7 +1,7 @@
 {
   "name": "dsh-keyboard-duplex",
-  "version": "0.2.1",
-  "description": "Opinions, suggestions and discussion from your selected DSH model while you type.",
+  "version": "0.3.0",
+  "description": "Discussion while you type, powered by official DeepSeek Pro and Jev with API-key-only settings.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -34,7 +34,7 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-shortcuts",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-model-selection"
+        "@deepseek-ai/dsh-client-ui-settings-models"
       ]
     },
     "bundle": {
@@ -53,13 +53,11 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.5 <4.1.0",
     "@deepseek-ai/dsh-agent": ">=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-agent-default-model": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-api-session-controller": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-connection": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-shortcuts": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-store": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-client-ui-model-selection": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-renderer": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-session": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.2.1-rc.2 <0.3.0",
@@ -70,18 +68,16 @@
     "@deepseek-ai/dsh-session-projection": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session-query": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-system-prompt": ">=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/schemastery": ">=3.18.5 <4.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/dsh-llm-deepseek": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-settings-models": ">=0.2.1-rc.2 <0.3.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
       "optional": true
     },
     "@deepseek-ai/dsh-agent": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-agent-default-model": {
       "optional": true
     },
     "@deepseek-ai/dsh-api-session-controller": {
@@ -97,9 +93,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-conversation": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-client-ui-model-selection": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-renderer": {
@@ -132,13 +125,16 @@
     "@deepseek-ai/dsh-system-prompt": {
       "optional": true
     },
-    "@deepseek-ai/schemastery": {
-      "optional": true
-    },
     "react": {
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm-deepseek": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings-models": {
       "optional": true
     }
   },

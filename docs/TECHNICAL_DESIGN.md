@@ -2,15 +2,15 @@
 
 ## 目标与分工
 
-用户写想法时，插件提前提供意见、反问和温和吐槽。正式任务由用户按 Enter 或点击发送提交，全文保留到发送时。System 1 只决定讨论时机，所有模型生成的可见内容来自当前会话主模型。
+用户写想法时，插件提前提供意见、反问和温和吐槽。正式任务由用户按 Enter 或点击发送提交，全文保留到发送时。System 1 只决定讨论时机，所有模型生成的可见内容来自 DeepSeek 官方 Pro，沿用当前会话人设。
 
-0.2.0 移除了前句自动提交、排队和自动改向，取消候选切分、提交置信度与补丁依赖。0.2.1 移除续写生成和 Tab 采纳。例如输入“我想知道当前工作区的位置，然后”，插件保持草稿；输入“一周上线聊天和社区，我还想”，即使没写完也可讨论范围。
+0.3.0 使用两路官方 API Key 配置。保留讨论，移除的自动提交和 Tab 续写不再恢复。输入“我想知道当前工作区的位置，然后”，仍等待用户发送。
 
 ## 架构与数据流
 
-`src/client/components.tsx` 通过 Cordis 注入开关和提示框，读取原生草稿、修订、选区、模型与任务状态。`PreviewController` 负责防抖、取消和结果校验。`src/index.ts` 校验 HTTP 来源、请求大小、会话与模型；密钥留在 Host。
+`src/client/components.tsx` 通过 Cordis 注入开关和提示框，读取原生草稿、修订、选区与任务状态。`PreviewController` 负责防抖、取消和结果校验。`src/index.ts` 校验 HTTP 来源、请求大小和会话；模型由 Host 固定。
 
-`src/host/context.ts` 投影最近六条正式消息正文，每条最多1,200字符，排除工具结果和隐藏推理。`preview()` 将草稿、近期正文和上一条意见送给决策接口；需要讨论时经 DSH provider 调用所选主模型，返回完整意见。
+`src/host/context.ts` 投影最近六条正式消息正文，每条最多1,200字符，排除工具结果和隐藏推理。`preview()` 将草稿、近期正文和上一条意见送给决策接口；需要讨论时经 DSH 原生 DeepSeek 适配器调用 Pro，返回完整意见。
 
 ```mermaid
 flowchart TD
@@ -18,18 +18,22 @@ flowchart TD
         INPUT["ComposerControl<br/>读取原生草稿与选区"]
         CTRL["PreviewController<br/>防抖、取消与结果校验"]
         CARD["OpinionCard<br/>展示意见"]
+        SETTINGS["ModelSettings<br/>模型设置页：两个 API Key"]
         INPUT -->|"输入快照"| CTRL
         CTRL -->|"更新意见状态"| CARD
     end
     subgraph HOST["src：来源校验、上下文与模型调用"]
-        API["apply / HTTP handler<br/>校验会话、模型与频率"]
+        API["apply / HTTP handler<br/>校验会话与频率"]
+        CONFIG["registerModels<br/>固定官方路由、读写凭据"]
         CONTEXT["contextProjection<br/>近期正式正文"]
         PREVIEW["preview<br/>讨论时机与辅助生成"]
         CONTEXT -->|"有界上下文"| API
-        API -->|"有效草稿和会话模型"| PREVIEW
+        API -->|"有效草稿和上下文"| PREVIEW
     end
-    SYSTEM1["百炼 Token Plan<br/>decision-model-preview / systemone"]
-    MAIN["当前会话主模型<br/>由 DSH provider 路由"]
+    SYSTEM1["TypeSafe 官方 JEV<br/>jev-latest / systemone"]
+    MAIN["DeepSeek 官方 Pro<br/>原生 Messages 适配器 / Off"]
+    SETTINGS -->|"保存、移除、读取状态"| CONFIG
+    CONFIG -->|"密钥记录"| KEYS["DSH 本机凭据库"]
     CTRL -->|"POST 草稿快照"| API
     PREVIEW <-->|"wait / suggest 判断"| SYSTEM1
     PREVIEW <-->|"suggest：无工具 JSON 输出"| MAIN
@@ -47,7 +51,7 @@ flowchart TD
 
 决策请求最短间隔750ms、每分钟40次；主模型意见另限5秒、每分钟6次。限额耗尽时保持等待，后续编辑再判断。
 
-System 1 使用百炼 Token Plan `decision-model-preview` 的 `/compatible-mode/v1/systemone` 接口，只提供两个选项：
+System 1 使用 TypeSafe 官方 `jev-latest`，接口为 `https://api.typesafe.ai/v1/systemone`，只提供两个选项：
 
 | 动作 | 判断与行为 |
 |---|---|
@@ -58,27 +62,27 @@ System 1 使用百炼 Token Plan `decision-model-preview` 的 `/compatible-mode/
 
 ## 主模型、人设与输出
 
-辅助调用沿用会话选中的模型与推理等级。Host 通过 `sessionController.resolveAgent()` 取得 Agent，组装系统提示词，仅保留 DSH 身份及人设前后缀，并用 `renderPrompt()` 处理变量和 preset 覆盖；随后追加任务约束，不另设身份。人设读取失败会报错。
+辅助调用固定 DeepSeek Pro / Off，不随聊天模型切换。Host 通过 `sessionController.resolveAgent()` 取得 Agent，组装系统提示词，仅保留 DSH 身份及人设前后缀，并用 `renderPrompt()` 处理变量和 preset 覆盖；随后追加任务约束，不另设身份。人设读取失败会报错。
 
-启动器默认 DeepSeek Pro（`deepseek-v4-pro`）/ Off，显式关闭思考；已有会话选择优先，详见 README。
+`ModelSettings` 注册到 `settings.models.footer`；两个 Key 分别写入原生凭据记录，只返回已配置/可写状态。保存不验证额度，替换或移除会取消在途预览。地址、模型与参数不可通过页面覆盖，不读取百炼 Key。
 
-主模型禁用工具，输出预算1,200 tokens。完整正常结束后解析 JSON，仅提取必填的 advice，最多600字符。意见以助手口吻参与讨论，不续写用户草稿；旧响应中的额外字段不展示。格式校验保证有意见，是否具体、有用及符合人设仍需实测。
+主模型固定官方 Messages 地址、thinking disabled、temperature 0.7；禁用工具，输出预算1,200 tokens。JEV/主模型超时4/30秒，均不自动重试。完整正常结束后解析 JSON，仅提取必填的 advice，最多600字符。意见以助手口吻参与讨论，不续写用户草稿；旧响应中的额外字段不展示。意见质量与人设表现仍需实测。
 
 截断、工具调用、空意见和错误格式不展示，不切备用模型。辅助意见不写入正式会话。
 
 ## 编辑、并发与展示
 
-每次请求绑定会话、模型、任务状态、上下文和草稿修订。退格或替换使旧结果失效；仅追加文字可保留基于较早草稿的意见。插件只读取草稿与选区，不提供写入输入框的入口；Tab/Shift+Tab 完全交给 DSH 原生处理。
+每次请求绑定会话、任务状态、上下文和草稿修订。退格或替换使旧结果失效；仅追加文字可保留基于较早草稿的意见。插件只读取草稿与选区，不提供写入输入框的入口；Tab/Shift+Tab 完全交给 DSH 原生处理。
 
 Enter 在原生提交前取消辅助判断；发送按钮沿用 DSH 流程，任务和正式消息事件使在途预览失效。Esc/× 清意见，清空草稿另清状态及耗时；迟到结果不能复活。请求失败保留草稿，等待下次编辑，不自动重试。
 
-开启后空提示框常驻；判断👀、意见💡、错误⚠️、暂不可用⏸️。关闭后隐藏。任务忙碌时显示讨论暂停；移除接纳✅、排队⬆️等旧执行状态。详情与服务端耗时在悬浮提示中。
+开启后空提示框常驻；判断👀、意见💡、错误⚠️、暂不可用⏸️。关闭后隐藏。任务忙碌时显示讨论暂停。详情与服务端耗时在悬浮提示中。
 
 ## 验证与边界
 
-38项测试覆盖主模型路由、人设、两动作协议、旧动作拒绝、限频、取消与编辑竞态；页面验证和限制见 VALIDATION.md。安装无需 DSH 前句补丁，已有补丁可保留但不再被本插件使用。
+41项测试与页面验证见 VALIDATION.md；无需 DSH 核心补丁。
 
-当前支持本机 DSH Web，语音项目另行维护。发送时递交完整草稿，无前句去重或 KV 迁移；辅助请求会增加调用成本，System 1 统计未进入 DSH 底部原生用量。正式任务中的连续旁路讨论属于后续能力。
+当前支持本机 DSH Web，语音项目另行维护。发送时递交完整草稿，无前句去重或 KV 迁移；辅助请求会增加调用成本，JEV 统计未进入 DSH 底部原生用量。正式任务中的连续旁路讨论属于后续能力。
 
 ## 后续交互探索
 

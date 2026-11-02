@@ -1,4 +1,4 @@
-import { DECISION_INTERVAL_MS, DECISION_PER_MINUTE, MAX_DRAFT_LENGTH, sameModel, type ModelSelection, type PreviewRequest, type PreviewResult } from '../protocol.ts'
+import { DECISION_INTERVAL_MS, DECISION_PER_MINUTE, MAX_DRAFT_LENGTH, type PreviewRequest, type PreviewResult } from '../protocol.ts'
 
 export type PreviewStatus = 'idle' | 'thinking' | 'suggested' | 'error' | 'blocked'
 
@@ -7,7 +7,6 @@ export interface DraftSnapshot {
   draft: string
   draftRev: number
   contextRevision: number
-  model: ModelSelection | null
   start: number
   end: number
   focused: boolean
@@ -167,7 +166,7 @@ export class PreviewController {
 
   private async run(): Promise<void> {
     const input = this.current
-    if (!input?.model || this.flight || !this.state.enabled || input.blocked || input.running || this.disposed) return
+    if (!input || this.flight || !this.state.enabled || input.blocked || input.running || this.disposed) return
     const flight = { input, abort: new AbortController() }
     this.flight = flight
     this.evaluated = input
@@ -176,7 +175,7 @@ export class PreviewController {
     try {
       const result = await this.request({
         sessionId: input.sessionId, draft: input.draft, draftRev: input.draftRev,
-        contextRevision: input.contextRevision, model: input.model,
+        contextRevision: input.contextRevision,
         running: input.running,
         previousAdvice: this.state.opinion?.advice,
       }, flight.abort.signal)
@@ -202,15 +201,15 @@ export class PreviewController {
 function sameContext(a: DraftSnapshot, b: DraftSnapshot): boolean {
   return a.sessionId === b.sessionId && a.contextRevision === b.contextRevision
     && a.running === b.running
-    && a.model !== null && b.model !== null && sameModel(a.model, b.model)
 }
 
 function previewError(error: unknown): string {
   const code = error instanceof Error ? error.message : ''
-  if (code === 'decision-key-missing') return '请配置 System 1 的 Token Plan 密钥'
+  if (code === 'decision-key-missing') return '请在设置 → 模型 → 知言填写 JEV API Key'
+  if (code === 'main-key-missing') return '请在设置 → 模型 → 知言填写 DeepSeek API Key'
   if (code === 'preview-timeout') return '预览超时 · 下次编辑再试'
   if (code === 'preview-rate-limit') return '预览过于频繁 · 下次编辑再试'
-  if (code === 'model-changed' || code === 'context-changed') return '会话已变化 · 下次编辑再试'
+  if (code === 'context-changed') return '会话已变化 · 下次编辑再试'
   if (code === 'invalid-suggestion' || code === 'main-incomplete-response') return '主模型未返回完整意见 · 下次编辑再试'
   if (code.startsWith('main-provider-error:')) return `主模型调用失败（${code.slice('main-provider-error:'.length)}）· 下次编辑再试`
   if (code === 'local-only') return '第一版请通过 localhost 打开 DSH'
