@@ -1,8 +1,6 @@
 import { DECISION_INTERVAL_MS, DECISION_PER_MINUTE, MAX_DRAFT_LENGTH, sameModel, type ModelSelection, type PreviewRequest, type PreviewResult } from '../protocol.ts'
-import { prefixCandidates } from '../candidates.ts'
 
-export type PreviewStatus = 'idle' | 'thinking' | 'suggested' | 'sending' | 'accepted' | 'queued' | 'error' | 'blocked'
-type SubmitPrefix = (request: { draftRev: number; sendEnd: number; consumeEnd: number; mode: 'queue' | 'steer' }) => Promise<{ kind: 'accepted' | 'skipped' | 'error' | 'disposed' }>
+export type PreviewStatus = 'idle' | 'thinking' | 'suggested' | 'error' | 'blocked'
 
 export interface DraftSnapshot {
   sessionId: string
@@ -30,7 +28,6 @@ export interface PreviewState {
   enabled: boolean
   status: PreviewStatus
   detail?: string
-  lastSubmission?: string
   opinion?: Opinion
   metrics?: PreviewResult['metrics']
   requests: number
@@ -53,13 +50,8 @@ export class PreviewController {
   private suppressedDraft?: string
   private attempts: number[] = []
   private disposed = false
-  private submitPrefix?: SubmitPrefix
-  private submitting = false
-  private draftClearVersion = 0
 
   constructor(private readonly request: (request: PreviewRequest, signal: AbortSignal) => Promise<PreviewResult>) {}
-
-  bindSubmission(submit: SubmitPrefix | undefined): void { this.submitPrefix = submit }
 
   getSnapshot = (): PreviewState => this.state
   subscribe = (listener: () => void): (() => void) => {
@@ -83,12 +75,11 @@ export class PreviewController {
     const changed = !previous || next.draft !== previous.draft || next.draftRev !== previous.draftRev
     const contextChanged = !previous || !sameContext(previous, next)
     if (!next.draft.trim()) {
-      if (changed) this.draftClearVersion++
       this.cancel()
       this.evaluated = undefined
       this.suppressedDraft = undefined
       this.stable = ''
-      this.publish({ status: 'idle', detail: undefined, opinion: undefined, lastSubmission: undefined, metrics: undefined })
+      this.publish({ status: 'idle', detail: undefined, opinion: undefined, metrics: undefined })
       return
     }
     const opinion = this.state.opinion
@@ -102,12 +93,13 @@ export class PreviewController {
         } })
       }
     }
-    if (!this.state.enabled || next.blocked) {
+    if (!this.state.enabled || next.blocked || next.running) {
       this.cancel()
-      this.publish({ opinion: undefined, status: this.state.enabled && next.blocked ? 'blocked' : 'idle', detail: next.blocked })
+      this.publish({ opinion: undefined, status: this.state.enabled ? 'blocked' : 'idle',
+        detail: next.blocked ?? (next.running ? '正式任务进行中，讨论暂停' : undefined) })
       return
     }
-    if (previous?.blocked && !next.blocked) this.publish({ status: 'idle', detail: undefined })
+    if ((previous?.blocked || previous?.running) && !next.blocked && !next.running) this.publish({ status: 'idle', detail: undefined })
     if (this.flight && (!sameContext(this.flight.input, next) || !next.draft.startsWith(this.flight.input.draft))) this.cancel()
     if (changed || contextChanged) {
       const now = Date.now()
@@ -143,7 +135,6 @@ export class PreviewController {
   detach(): void {
     this.cancel()
     this.current = undefined
-    this.submitPrefix = undefined
     this.publish({ opinion: undefined, status: 'idle', detail: undefined })
   }
 
@@ -172,7 +163,7 @@ export class PreviewController {
     clearTimeout(this.timer)
     this.timer = undefined
     const input = this.current
-    if (!this.state.enabled || !input || this.disposed || input.blocked || this.submitting) return
+    if (!this.state.enabled || !input || this.disposed || input.blocked || input.running) return
     if (input.composing || !input.focused || input.start !== input.end || input.end !== input.draft.length) {
       return
     }
@@ -192,7 +183,7 @@ export class PreviewController {
 
   private async run(): Promise<void> {
     const input = this.current
-    if (!input?.model || this.flight || !this.state.enabled || input.blocked || this.disposed) return
+    if (!input?.model || this.flight || !this.state.enabled || input.blocked || input.running || this.disposed) return
     const flight = { input, abort: new AbortController() }
     this.flight = flight
     this.evaluated = input
@@ -208,26 +199,6 @@ export class PreviewController {
       const latest = this.current
       if (flight.abort.signal.aborted || !latest || !sameContext(input, latest) || !latest.draft.startsWith(input.draft)) return
       this.publish({ metrics: result.metrics })
-      if (result.action === 'submit_prefix' || result.action === 'steer') {
-        if (!exactCandidate(input, latest)) return
-        const candidate = prefixCandidates(latest.draft).find(item => item.id === result.candidate.id
-          && item.sendEnd === result.candidate.sendEnd && item.consumeEnd === result.candidate.consumeEnd)
-        if (!candidate || (result.action === 'steer' && !latest.running)) return
-        if (!this.submitPrefix) { this.publish({ status: 'blocked', detail: '请重建 DSH，当前输入接口不支持前句提交' }); return }
-        const clearVersion = this.draftClearVersion
-        this.submitting = true
-        this.publish({ opinion: undefined, status: 'sending', lastSubmission: input.draft.slice(0, candidate.sendEnd) })
-        const outcome = await this.submitPrefix({ ...candidate, draftRev: input.draftRev, mode: result.action === 'steer' ? 'steer' : 'queue' })
-        if (this.disposed || !this.state.enabled || this.current?.sessionId !== input.sessionId) return
-        if (outcome.kind === 'error') {
-          // Explicit re-enable is required after a failed admission; restored text must not auto-resubmit.
-          this.cancel()
-          this.publish({ enabled: false, status: 'error', detail: '发送未成功，已保留文字；自动发送已暂停，请检查 DSH 提示后手动发送或重新开启' })
-        } else if (clearVersion === this.draftClearVersion) {
-          this.publish({ status: outcome.kind === 'accepted' ? (input.running && result.action === 'submit_prefix' ? 'queued' : 'accepted') : 'idle', detail: undefined })
-        }
-        return
-      }
       this.publish({ status: result.action === 'wait' ? (this.state.opinion ? 'suggested' : 'idle') : 'suggested',
         ...(result.action === 'suggest' ? { opinion: {
           advice: result.advice, completion: exactCandidate(input, latest) ? result.completion : undefined,
@@ -237,7 +208,6 @@ export class PreviewController {
     } catch (error) {
       if (!flight.abort.signal.aborted) this.publish({ status: 'error', detail: previewError(error), opinion: undefined })
     } finally {
-      this.submitting = false
       if (this.flight === flight) this.flight = undefined
       if (this.state.status === 'thinking') this.publish({ status: this.state.opinion ? 'suggested' : 'idle' })
       this.schedule()

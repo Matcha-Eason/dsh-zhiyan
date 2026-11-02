@@ -3,12 +3,6 @@ export const MAX_DRAFT_LENGTH = 8_000
 export const DECISION_INTERVAL_MS = 750
 export const DECISION_PER_MINUTE = 40
 
-export interface PrefixCandidate {
-  id: string
-  sendEnd: number
-  consumeEnd: number
-}
-
 export interface ModelSelection {
   provider: string
   model: string
@@ -41,7 +35,6 @@ export interface PreviewMetrics {
 
 export type PreviewResult =
   | { action: 'wait'; metrics: PreviewMetrics }
-  | { action: 'submit_prefix' | 'steer'; candidate: PrefixCandidate; metrics: PreviewMetrics }
   | {
     action: 'suggest'
     advice: string

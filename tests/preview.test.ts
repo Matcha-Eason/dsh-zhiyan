@@ -84,25 +84,6 @@ test('aborted call cannot publish a completed response', async () => {
   }), { name: 'AbortError' })
 })
 
-for (const action of ['submit_prefix', 'steer'] as const) test(`${action} selects original span without an auxiliary answer`, async () => {
-  const input = { ...request, draft: '我想知道当前工作区的位置，然后', running: action === 'steer' }
-  const result = await preview(input, context, {
-    ...options,
-    fetch: async (_url, init) => {
-      const body = JSON.parse(String(init?.body))
-      assert.ok(body.questions.action.criteria[action])
-      assert.equal(body.state.running, input.running)
-      return Response.json({ answers: { action: { choice: action, confidence: 0.98 } } })
-    },
-    stream: async function* () { throw new Error('must not call auxiliary model'); yield {} as StreamChunk },
-    persona: async () => { throw new Error('must not assemble persona for submission') },
-  })
-  assert.equal(result.action, action)
-  if (result.action !== 'submit_prefix' && result.action !== 'steer') return
-  assert.equal(input.draft.slice(0, result.candidate.sendEnd), '我想知道当前工作区的位置')
-  assert.equal(input.draft.slice(result.candidate.consumeEnd), '然后')
-})
-
 test('a capped opinion budget still permits decisions, but no extra opinion generation', async () => {
   const result = await preview(request, context, {
     ...options, allowSuggestion: () => false,
@@ -111,24 +92,34 @@ test('a capped opinion budget still permits decisions, but no extra opinion gene
   assert.equal(result.action, 'wait')
 })
 
-test('unoffered candidates and idle steer are rejected', async () => {
-  for (const choice of ['submit_prefix_c999', 'steer']) {
-    await assert.rejects(preview(request, context, { ...options, fetch: async () => Response.json({ answers: { action: { choice } } }) }), /decision-invalid-response/)
+test('legacy execution decisions are rejected even at full confidence', async () => {
+  for (const choice of ['submit_prefix', 'submit_prefix_c0', 'steer']) {
+    await assert.rejects(preview(request, context, {
+      ...options,
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body))
+        assert.deepEqual(Object.keys(body.questions.action.criteria), ['wait', 'suggest'])
+        assert.equal(body.state.candidate, undefined)
+        return Response.json({ answers: { action: { choice, confidence: 1 } } })
+      },
+      stream: async function* () { throw new Error('must not generate'); yield {} as StreamChunk },
+    }), /decision-invalid-response/)
   }
 })
 
-test('unfinished questions and explicit withdrawal never reach the classifier or main model', async () => {
-  for (const draft of ['我想知道当前工作区的位置是否', '请查当前目录，但先别执行', '先删除这些文件，然后，不对……']) {
-    const result = await preview({ ...request, draft }, context, { ...options, fetch: async () => { throw new Error('must wait locally') } })
-    assert.equal(result.action, 'wait')
+test('unfinished ideas and requests not to execute can still receive discussion', async () => {
+  for (const draft of ['我想一周做完聊天和社区，我还想', '先别执行，我在想是否该先只做聊天']) {
+    const result = await preview({ ...request, draft }, context, options)
+    assert.equal(result.action, 'suggest')
   }
 })
 
-test('automatic submission requires a finite confidence above the configured threshold', async () => {
-  for (const confidence of [undefined, 0.3, 0.89, 1.1]) {
-    const result = await preview({ ...request, draft: '请告诉我当前工作区的位置，然后' }, context, {
-      ...options, fetch: async () => Response.json({ answers: { action: { choice: 'submit_prefix', confidence } } }),
-    })
-    assert.equal(result.action, 'wait')
-  }
+test('running tasks skip both decision and auxiliary generation', async () => {
+  const result = await preview({ ...request, running: true }, context, {
+    ...options,
+    fetch: async () => { throw new Error('must not classify while busy') },
+    persona: async () => { throw new Error('must not assemble persona while busy') },
+    stream: async function* () { throw new Error('must not generate'); yield {} as StreamChunk },
+  })
+  assert.equal(result.action, 'wait')
 })

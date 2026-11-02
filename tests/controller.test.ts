@@ -3,7 +3,6 @@ import { test, type TestContext } from 'node:test'
 import { setImmediate } from 'node:timers/promises'
 import { PreviewController, type DraftSnapshot } from '../src/client/controller.ts'
 import type { PreviewRequest, PreviewResult } from '../src/protocol.ts'
-import { prefixCandidates } from '../src/candidates.ts'
 
 function draft(text = '我想做个提醒应用', overrides: Partial<DraftSnapshot> = {}): DraftSnapshot {
   return {
@@ -234,78 +233,47 @@ test('failure has no automatic retry and preserves editor ownership', async t =>
   assert.equal(controller.getSnapshot().detail, undefined)
 })
 
-for (const running of [false, true]) test(`accepted prefix uses native queue and leaves the suffix (running=${running})`, async t => {
+test('complete task drafts stay intact and Enter dismisses discussion work', async t => {
   const { controller, calls, advance } = setup(t)
   const text = '我想知道当前工作区的位置，然后'
-  controller.update(draft(text, { running }))
-  let submitted = 0
-  controller.bindSubmission(async request => {
-    submitted++
-    assert.equal(request.mode, 'queue')
-    assert.equal(text.slice(0, request.sendEnd), '我想知道当前工作区的位置')
-    assert.equal(text.slice(request.consumeEnd), '然后')
-    controller.update(draft('然后', { draftRev: 2, running: true, contextRevision: 1 }))
-    return { kind: 'accepted' }
-  })
+  const input = draft(text)
+  controller.update(input)
   controller.setEnabled(true)
   await advance(800)
-  calls[0]!.resolve({ action: 'submit_prefix', candidate: prefixCandidates(text)[0]!, metrics: { decisionMs: 10, totalMs: 10 } })
-  await advance(0)
-  assert.equal(submitted, 1)
-  assert.equal(controller.getSnapshot().status, running ? 'queued' : 'accepted')
+  assert.equal(calls[0]!.request.draft, text)
+  calls[0]!.resolve({ action: 'wait', metrics: { decisionMs: 10, totalMs: 10 } })
   await advance(60_000)
-  assert.equal(submitted, 1)
-  controller.update(draft('', { draftRev: 3, running: true, contextRevision: 1 }))
+  assert.equal(input.draft, text)
   assert.equal(controller.getSnapshot().status, 'idle')
-  assert.equal(controller.getSnapshot().lastSubmission, undefined)
-})
-
-test('admission after clearing and typing again cannot restore the old accepted emoji', async t => {
-  const { controller, calls, advance } = setup(t)
-  const text = '请列出当前目录，然后'
-  const pending = Promise.withResolvers<{ kind: 'accepted' }>()
-  controller.bindSubmission(() => pending.promise)
-  controller.update(draft(text))
-  controller.setEnabled(true)
-  await advance(800)
-  calls[0]!.resolve({ action: 'submit_prefix', candidate: prefixCandidates(text)[0]!, metrics: { decisionMs: 10, totalMs: 10 } })
-  await advance(0)
-  assert.equal(controller.getSnapshot().status, 'sending')
-  controller.update(draft('', { draftRev: 2 }))
-  controller.update(draft('新', { draftRev: 3 }))
-  pending.resolve({ kind: 'accepted' })
-  await advance(0)
-  assert.equal(controller.getSnapshot().status, 'idle')
-  assert.equal(controller.getSnapshot().lastSubmission, undefined)
-})
-
-test('a new trailing condition invalidates a pending automatic submission', async t => {
-  const { controller, calls, advance } = setup(t)
-  const text = '请列出当前目录，然后'
-  controller.bindSubmission(async () => { throw new Error('must not submit') })
-  controller.update(draft(text))
-  controller.setEnabled(true)
-  await advance(800)
-  controller.update(draft(text + '但先不要执行', { draftRev: 2 }))
-  calls[0]!.resolve({ action: 'submit_prefix', candidate: prefixCandidates(text)[0]!, metrics: { decisionMs: 10, totalMs: 10 } })
-  await advance(0)
-  assert.equal(controller.getSnapshot().lastSubmission, undefined)
-})
-
-test('steer uses native interruption and rejected admission pauses automatic sending', async t => {
-  const { controller, calls, advance } = setup(t)
-  const text = '等等，只查 src 目录，'
-  controller.update(draft(text, { running: true }))
-  controller.bindSubmission(async request => {
-    assert.equal(request.mode, 'steer')
-    return { kind: 'error' }
-  })
-  controller.setEnabled(true)
-  await advance(800)
-  calls[0]!.resolve({ action: 'steer', candidate: prefixCandidates(text).at(-1)!, metrics: { decisionMs: 10, totalMs: 10 } })
-  await advance(0)
-  assert.equal(controller.getSnapshot().enabled, false)
-  assert.equal(controller.getSnapshot().status, 'error')
+  assert.equal(calls.length, 1)
+  controller.update(draft(text + '用一句话解释它', { draftRev: 2 }))
+  controller.dismiss()
   await advance(60_000)
+  assert.equal(calls.length, 1, 'manual submission cancels the pending discussion')
+})
+
+test('running tasks pause discussions without requesting a decision, then resume when idle', async t => {
+  const { controller, calls, advance } = setup(t)
+  controller.update(draft('等等，只查 src 目录，', { running: true }))
+  controller.setEnabled(true)
+  await advance(60_000)
+  assert.equal(calls.length, 0)
+  assert.equal(controller.getSnapshot().status, 'blocked')
+  controller.update(draft('等等，只查 src 目录，', { running: false }))
+  await advance(800)
+  assert.equal(calls.length, 1)
+  assert.equal(controller.getSnapshot().detail, undefined)
+})
+
+test('task start cancels an in-flight discussion and its late reply', async t => {
+  const { controller, calls, advance } = setup(t)
+  controller.update(draft())
+  controller.setEnabled(true)
+  await advance(800)
+  controller.update(draft(undefined, { running: true }))
+  assert.equal(calls[0]!.signal.aborted, true)
+  calls[0]!.resolve(suggestion)
+  await advance(60_000)
+  assert.equal(controller.getSnapshot().opinion, undefined)
   assert.equal(calls.length, 1)
 })

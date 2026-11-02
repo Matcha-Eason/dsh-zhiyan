@@ -27,6 +27,7 @@ export function apply(ctx: Omit<Context, 'sessions'> & { sessions: ISessions }):
       })
       const body = await response.json() as PreviewResult | { error: string }
       if (!response.ok || 'error' in body) throw new Error('error' in body ? body.error : 'preview-failed')
+      if (body.action !== 'wait' && body.action !== 'suggest') throw new Error('preview-invalid-response')
       return body
     })
     controllers.set(sessionId, controller)

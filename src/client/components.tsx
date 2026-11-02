@@ -11,9 +11,6 @@ const statuses: Record<PreviewStatus, { icon: string; label: string }> = {
   idle: { icon: '', label: '' },
   thinking: { icon: '👀', label: '正在看你的草稿' },
   suggested: { icon: '💡', label: '有一条意见' },
-  sending: { icon: '↗️', label: '正在递交前句' },
-  accepted: { icon: '✅', label: '前句已接纳' },
-  queued: { icon: '⬆️', label: '已排队' },
   error: { icon: '⚠️', label: '需要留意' },
   blocked: { icon: '⏸️', label: '暂不可用' },
 }
@@ -73,7 +70,6 @@ export function ComposerControl({
       return previous
     }
     read.current = snapshot
-    controller.bindSubmission(inputActions.submitPrefix)
     const update = () => controller.update(snapshot())
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || editor.hasAttribute('data-composer-composing')) return
@@ -121,7 +117,7 @@ export function ComposerControl({
   useEffect(() => { void directory.load().catch(() => { /* The shared directory exposes this failure. */ }) }, [directory])
 
   return <button ref={anchor} type="button" style={buttonStyle} aria-pressed={state.enabled}
-    title="开启后会分析草稿，并将完整前句自动交给 DSH 执行。Tab 接续写，Enter 发剩余内容；执行中的明确纠正会插话。"
+    title="开启后主模型会对草稿给出意见，续写可用 Tab 填入。按 Enter 或点击发送后，DSH 才会收到正式任务。"
     onMouseDown={event => event.preventDefault()}
     onClick={() => controller.setEnabled(!state.enabled)}>
     {state.enabled ? '● 边写边聊' : '边写边聊'}
@@ -142,7 +138,7 @@ export function OpinionCard({ controller, inputActions }: { controller: PreviewC
   }}>
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 24, fontSize: 14 }}>
       {status.icon && <span role="status" aria-live="polite" aria-label={label}
-        title={[label, opinion?.earlier ? '基于上一句' : '', state.lastSubmission ? `前句：${state.lastSubmission}` : '',
+        title={[label, opinion?.earlier ? '基于上一句' : '',
           state.metrics ? `本次 ${state.metrics.totalMs} ms · System 1 ${state.metrics.decisionMs} ms · 本会话 ${state.requests} 次判断` : '',
         ].filter(Boolean).join('\n')}>
         <span aria-hidden="true">{status.icon}</span>

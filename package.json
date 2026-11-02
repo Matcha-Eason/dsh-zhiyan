@@ -1,6 +1,6 @@
 {
   "name": "dsh-keyboard-duplex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Opinions from your selected DSH model while you type, with optional Tab completions.",
   "type": "module",
   "main": "lib/index.js",

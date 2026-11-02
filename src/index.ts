@@ -22,13 +22,11 @@ export interface Config {
   decisionCredential: string
   decisionTimeoutMs: number
   mainTimeoutMs: number
-  submissionConfidence?: number
 }
 export const Config = Schema.object({
   decisionCredential: Schema.string().default('BAILIAN_TOKEN_PLAN_API_KEY'),
   decisionTimeoutMs: Schema.number().min(500).max(30_000).default(4_000),
   mainTimeoutMs: Schema.number().min(1_000).max(120_000).default(20_000),
-  submissionConfidence: Schema.number().min(0).max(1).default(0.9),
 })
 
 const requestSchema = z.object({
@@ -121,11 +119,10 @@ export function apply(ctx: Context, config: Config): void {
             })
           },
           decisionTimeoutMs: config.decisionTimeoutMs, mainTimeoutMs: config.mainTimeoutMs,
-          submissionConfidence: config.submissionConfidence,
           allowSuggestion: () => {
             const at = Date.now()
             const recent = (suggestions.get(id) ?? []).filter(time => time > at - 60_000)
-            if (request.running || recent.length >= 6 || at - (recent.at(-1) ?? -Infinity) < 5_000) return false
+            if (recent.length >= 6 || at - (recent.at(-1) ?? -Infinity) < 5_000) return false
             suggestions.set(id, [...recent, at])
             return true
           },
